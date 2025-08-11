@@ -294,20 +294,24 @@ class MainWindow(QMainWindow):
         else:
             return algorithm_name
             
-    def update_display(self):
-        """更新显示 - 性能优化版本"""
+    def update_display(self, reset_view: bool = True):
+        """更新显示 - 性能优化版本
+
+        Args:
+            reset_view: 是否重置视图缩放，默认True
+        """
         # 只更新可见的视图，提高性能
         if self.is_split_view and self.image_manager.original_image:
             # 双窗口模式：更新原始图像视图
             original_display = self.image_manager.get_windowed_image(
                 self.image_manager.original_image)
-            self.original_view.set_image(original_display)
+            self.original_view.set_image(original_display, reset_view)
 
         if self.image_manager.current_image:
             # 总是更新处理后的图像视图（主要视图）
             processed_display = self.image_manager.get_windowed_image(
                 self.image_manager.current_image)
-            self.processed_view.set_image(processed_display)
+            self.processed_view.set_image(processed_display, reset_view)
             
     def on_window_width_changed(self, value: float):
         """窗宽改变事件 - 直接处理，提高响应速度"""
@@ -330,14 +334,16 @@ class MainWindow(QMainWindow):
         if self.image_manager.current_image:
             # 简化处理，减少开销
             self.image_manager.update_window_settings(window_width, window_level)
-            self.update_display()
+            # 窗宽窗位调节时不重置视图缩放
+            self.update_display(reset_view=False)
 
     def _apply_smooth_window_level(self, window_width: float, window_level: float):
         """应用平滑的窗宽窗位调节（保留用于特殊情况）"""
         if self.image_manager.current_image:
             # 简化版本，减少监控开销
             self.image_manager.update_window_settings(window_width, window_level)
-            self.update_display()
+            # 窗宽窗位调节时不重置视图缩放
+            self.update_display(reset_view=False)
 
             # 减少垃圾回收频率
             if not hasattr(self, '_gc_counter'):

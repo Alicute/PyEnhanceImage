@@ -73,8 +73,13 @@ class ImageView(QGraphicsView):
         self.zoom_operations = 0
         self.last_zoom_time = 0.0
         
-    def set_image(self, image_data: np.ndarray):
-        """设置图像数据并生成金字塔缓存"""
+    def set_image(self, image_data: np.ndarray, reset_view: bool = True):
+        """设置图像数据并生成金字塔缓存
+
+        Args:
+            image_data: 图像数据，应该是numpy数组
+            reset_view: 是否重置视图缩放，默认True
+        """
         if image_data is None:
             self.clear()
             return
@@ -109,8 +114,9 @@ class ImageView(QGraphicsView):
         # 将图像放置在场景中心
         self.pixmap_item.setPos(-pixmap.width()/2, -pixmap.height()/2)
 
-        # 重置视图
-        self.reset_view()
+        # 根据参数决定是否重置视图
+        if reset_view:
+            self.reset_view()
         
     def clear(self):
         """清除图像"""
