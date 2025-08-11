@@ -4,9 +4,9 @@
 import sys
 import os
 import numpy as np
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, 
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
                            QSplitter, QMenuBar, QMenu, QFileDialog, QStatusBar,
-                           QMessageBox, QApplication)
+                           QMessageBox, QApplication, QProgressBar, QLabel)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
 
@@ -14,6 +14,7 @@ from .image_view import ImageView
 from .control_panel import ControlPanel
 from ..core.image_manager import ImageManager
 from ..core.image_processor import ImageProcessor
+from ..core.image_processing_thread import ImageProcessingThread
 from ..utils.helpers import generate_output_filename, ensure_directory_exists
 
 class MainWindow(QMainWindow):
@@ -24,7 +25,14 @@ class MainWindow(QMainWindow):
         self.image_manager = ImageManager()
         self.image_processor = ImageProcessor()
         self.view_sync_enabled = False
-        
+
+        # 初始化多线程处理
+        self.processing_thread = ImageProcessingThread()
+        self.processing_thread.start()
+
+        # 当前处理任务ID
+        self.current_task_id = None
+
         self.init_ui()
         self.connect_signals()
         
@@ -80,6 +88,17 @@ class MainWindow(QMainWindow):
         # 创建状态栏
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+        # 添加进度指示器
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximumWidth(200)
+        self.status_bar.addPermanentWidget(self.progress_bar)
+
+        # 添加队列状态标签
+        self.queue_label = QLabel("队列: 0/0")
+        self.status_bar.addPermanentWidget(self.queue_label)
+
         self.status_bar.showMessage("就绪")
         
     def create_menu_bar(self):
@@ -145,6 +164,13 @@ class MainWindow(QMainWindow):
         # 图像视图信号
         self.original_view.wheelEvent = lambda event: self.on_image_wheel_event(self.original_view, event)
         self.processed_view.wheelEvent = lambda event: self.on_image_wheel_event(self.processed_view, event)
+
+        # 多线程处理信号
+        self.processing_thread.task_started.connect(self.on_task_started)
+        self.processing_thread.task_progress.connect(self.on_task_progress)
+        self.processing_thread.task_completed.connect(self.on_task_completed)
+        self.processing_thread.task_failed.connect(self.on_task_failed)
+        self.processing_thread.queue_status_changed.connect(self.on_queue_status_changed)
         
     def load_dicom(self):
         """加载DICOM文件"""
@@ -187,74 +213,61 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("已重置为原始图像")
         
     def apply_algorithm(self, algorithm_name: str, parameters: dict):
-        """应用图像处理算法"""
+        """应用图像处理算法 - 使用多线程异步处理"""
         if self.image_manager.current_image is None:
             return
-            
-        try:
-            self.status_bar.showMessage(f"正在处理: {algorithm_name}")
-            QApplication.processEvents()
-            
-            # 获取当前图像数据
-            current_data = self.image_manager.current_image.data
-            
-            # 应用算法
-            if algorithm_name == 'gamma_correction':
-                processed_data = self.image_processor.gamma_correction(
-                    current_data, parameters['gamma'])
-                description = f"Gamma校正 (γ={parameters['gamma']})"
-                
-            elif algorithm_name == 'histogram_equalization':
-                processed_data = self.image_processor.histogram_equalization(
-                    current_data, parameters['method'])
-                method_name = "全局均衡化" if parameters['method'] == 'global' else "CLAHE"
-                description = f"直方图均衡化 ({method_name})"
-                
-            elif algorithm_name == 'gaussian_filter':
-                processed_data = self.image_processor.gaussian_filter(
-                    current_data, parameters['sigma'])
-                description = f"高斯滤波 (σ={parameters['sigma']})"
-                
-            elif algorithm_name == 'median_filter':
-                processed_data = self.image_processor.median_filter(
-                    current_data, parameters['disk_size'])
-                description = f"中值滤波 (size={parameters['disk_size']})"
-                
-            elif algorithm_name == 'unsharp_mask':
-                processed_data = self.image_processor.unsharp_mask(
-                    current_data, parameters['radius'], parameters['amount'])
-                description = f"非锐化掩模 (r={parameters['radius']}, a={parameters['amount']})"
-                
-            elif algorithm_name == 'morphological_operation':
-                processed_data = self.image_processor.morphological_operation(
-                    current_data, parameters['operation'], parameters['disk_size'])
-                operation_name = {
-                    'erosion': '腐蚀',
-                    'dilation': '膨胀',
-                    'opening': '开运算',
-                    'closing': '闭运算'
-                }[parameters['operation']]
-                description = f"形态学{operation_name} (size={parameters['disk_size']})"
-                
-            else:
-                processed_data = current_data
-                description = algorithm_name
-                
-            # 更新图像管理器
-            self.image_manager.apply_processing(
-                algorithm_name, parameters, processed_data, description)
-            
-            # 更新显示
-            self.update_display()
-            
-            # 更新历史记录
-            self.control_panel.update_history(self.image_manager.processing_history)
-            
-            self.status_bar.showMessage(f"处理完成: {description}")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"处理失败: {str(e)}")
-            self.status_bar.showMessage("处理失败")
+
+        # 取消当前任务（如果有）
+        if self.current_task_id:
+            self.processing_thread.cancel_task(self.current_task_id)
+
+        # 获取当前图像数据
+        current_data = self.image_manager.current_image.data
+
+        # 生成任务描述
+        description = self._generate_task_description(algorithm_name, parameters)
+
+        # 添加任务到处理队列
+        self.current_task_id = self.processing_thread.add_task(
+            algorithm_name, parameters, current_data, description
+        )
+
+        # 禁用控制面板，防止重复提交
+        self.control_panel.set_controls_enabled(False)
+
+        self.status_bar.showMessage(f"已添加到处理队列: {description}")
+
+    def _generate_task_description(self, algorithm_name: str, parameters: dict) -> str:
+        """生成任务描述
+
+        Args:
+            algorithm_name: 算法名称
+            parameters: 算法参数
+
+        Returns:
+            str: 任务描述
+        """
+        if algorithm_name == 'gamma_correction':
+            return f"Gamma校正 (γ={parameters['gamma']})"
+        elif algorithm_name == 'histogram_equalization':
+            method_name = "全局均衡化" if parameters['method'] == 'global' else "CLAHE"
+            return f"直方图均衡化 ({method_name})"
+        elif algorithm_name == 'gaussian_filter':
+            return f"高斯滤波 (σ={parameters['sigma']})"
+        elif algorithm_name == 'median_filter':
+            return f"中值滤波 (size={parameters['disk_size']})"
+        elif algorithm_name == 'unsharp_mask':
+            return f"非锐化掩模 (r={parameters['radius']}, a={parameters['amount']})"
+        elif algorithm_name == 'morphological_operation':
+            operation_name = {
+                'erosion': '腐蚀',
+                'dilation': '膨胀',
+                'opening': '开运算',
+                'closing': '闭运算'
+            }[parameters['operation']]
+            return f"形态学{operation_name} (size={parameters['disk_size']})"
+        else:
+            return algorithm_name
             
     def update_display(self):
         """更新显示"""
@@ -416,6 +429,76 @@ class MainWindow(QMainWindow):
                          "交互式的图像增强实验与教学平台。\\n\\n"
                          "技术栈: PyQt6, pydicom, scikit-image")
         
+    def on_task_started(self, task_id: str):
+        """任务开始处理"""
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_bar.showMessage("正在处理...")
+
+    def on_task_progress(self, task_id: str, progress: float):
+        """任务进度更新"""
+        self.progress_bar.setValue(int(progress * 100))
+
+    def on_task_completed(self, task_id: str, result_data: np.ndarray, description: str):
+        """任务完成处理"""
+        try:
+            # 更新图像管理器
+            if self.image_manager.current_image:
+                # 获取当前任务的算法名称和参数（从描述中解析或使用默认值）
+                algorithm_name = "processed"
+                parameters = {}
+
+                self.image_manager.apply_processing(
+                    algorithm_name, parameters, result_data, description)
+
+                # 更新显示
+                self.update_display()
+
+                # 更新历史记录
+                self.control_panel.update_history(self.image_manager.processing_history)
+
+            # 隐藏进度条
+            self.progress_bar.setVisible(False)
+
+            # 重新启用控制面板
+            self.control_panel.set_controls_enabled(True)
+
+            # 清除当前任务ID
+            if self.current_task_id == task_id:
+                self.current_task_id = None
+
+            self.status_bar.showMessage(f"处理完成: {description}")
+
+        except Exception as e:
+            self.on_task_failed(task_id, str(e))
+
+    def on_task_failed(self, task_id: str, error_message: str):
+        """任务失败处理"""
+        # 隐藏进度条
+        self.progress_bar.setVisible(False)
+
+        # 重新启用控制面板
+        self.control_panel.set_controls_enabled(True)
+
+        # 清除当前任务ID
+        if self.current_task_id == task_id:
+            self.current_task_id = None
+
+        # 显示错误信息
+        QMessageBox.critical(self, "处理错误", f"图像处理失败:\n{error_message}")
+        self.status_bar.showMessage("处理失败")
+
+    def on_queue_status_changed(self, pending_count: int, total_count: int):
+        """队列状态变化"""
+        self.queue_label.setText(f"队列: {pending_count}/{total_count}")
+
     def closeEvent(self, event):
         """关闭事件"""
+        # 停止处理线程
+        if hasattr(self, 'processing_thread'):
+            self.processing_thread.stop_processing()
+            self.processing_thread.wait(3000)  # 等待最多3秒
+            if self.processing_thread.isRunning():
+                self.processing_thread.terminate()
+
         event.accept()
