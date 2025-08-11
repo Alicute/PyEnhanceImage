@@ -9,6 +9,7 @@ import uuid
 from typing import Optional, Tuple, List, Dict, Any
 from dataclasses import dataclass
 from enum import Enum
+from .window_level_lut import get_global_lut
 
 # 过滤DICOM字符编码警告
 warnings.filterwarnings('ignore', category=UserWarning, message='Incorrect value for Specific Character Set')
@@ -221,19 +222,15 @@ class ImageManager:
         return display_data
     
     def _calculate_windowed_display(self, image_data: ImageData) -> np.ndarray:
-        """计算窗宽窗位显示数据"""
+        """计算窗宽窗位显示数据 - 使用LUT优化"""
         data = image_data.data
         window_width = image_data.window_width
         window_level = image_data.window_level
-        
-        # 计算窗宽窗位范围
-        min_val = window_level - window_width / 2
-        max_val = window_level + window_width / 2
-        
-        # 应用窗宽窗位
-        windowed_data = np.clip(data, min_val, max_val)
-        windowed_data = ((windowed_data - min_val) / (max_val - min_val) * 255).astype(np.uint8)
-        
+
+        # 使用LUT优化的窗宽窗位计算
+        lut = get_global_lut()
+        windowed_data = lut.apply_lut(data, window_width, window_level)
+
         return windowed_data
     
     def _refresh_display_cache(self):
@@ -265,3 +262,13 @@ class ImageManager:
             'processing_history': self.processing_history.copy(),
             'history_length': len(self.processing_history)
         }
+
+    def get_lut_performance_stats(self) -> Dict[str, Any]:
+        """获取LUT性能统计信息"""
+        lut = get_global_lut()
+        return lut.get_cache_stats()
+
+    def optimize_lut_cache(self):
+        """优化LUT缓存大小"""
+        lut = get_global_lut()
+        lut.optimize_cache_size()
