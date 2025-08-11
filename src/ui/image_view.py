@@ -82,34 +82,25 @@ class ImageView(QGraphicsView):
         # 生成唯一的图像ID
         self.image_id = str(uuid.uuid4())
 
-        # 保存当前图像数据
-        self.current_image_data = image_data.copy()
+        # 保存当前图像数据引用（不拷贝，节省内存）
+        self.current_image_data = image_data
 
-        # 确保数据是uint8
-        if image_data.dtype != np.uint8:
-            # 归一化到0-255
-            display_data = ((image_data - image_data.min()) /
-                           (image_data.max() - image_data.min()) * 255).astype(np.uint8)
-        else:
+        # 快速类型检查和转换
+        if image_data.dtype == np.uint8:
+            # 已经是正确类型，直接使用
             display_data = image_data
+        else:
+            # 需要转换，但避免昂贵的min/max计算
+            # 假设数据已经在合理范围内（来自窗宽窗位处理）
+            display_data = np.clip(image_data, 0, 255).astype(np.uint8)
 
         # 先创建基础pixmap
         pixmap = self._create_pixmap_from_data(display_data)
         self.original_pixmap = pixmap
 
-        # 尝试创建图像金字塔（如果失败也不影响基本功能）
-        try:
-            self.pyramid = get_pyramid_for_image(self.image_id)
-            pyramid_success = self.pyramid.set_image(display_data)
-
-            if pyramid_success:
-                # 如果金字塔创建成功，尝试获取更优的pixmap
-                pyramid_pixmap = self.pyramid.get_pixmap_for_scale(1.0)
-                if pyramid_pixmap:
-                    pixmap = pyramid_pixmap
-        except Exception as e:
-            print(f"金字塔创建失败，使用基础显示: {e}")
-            self.pyramid = None
+        # 暂时禁用图像金字塔以解决内存问题
+        # TODO: 重新设计金字塔以减少内存使用
+        self.pyramid = None
 
         # 清除场景并添加新的pixmap
         self.scene.clear()

@@ -210,11 +210,11 @@ class ImageManager:
         # 重新计算显示数据
         display_data = self._calculate_windowed_display(image_data)
         
-        # 更新缓存
+        # 更新缓存（不需要copy，显示数据是只读的）
         if image_data.id == self.original_image_id:
-            self.original_display_cache = display_data.copy()
+            self.original_display_cache = display_data
         elif image_data.id == self.current_image_id:
-            self.current_display_cache = display_data.copy()
+            self.current_display_cache = display_data
         
         # 更新最后使用的窗宽窗位设置
         self.last_window_settings = current_settings

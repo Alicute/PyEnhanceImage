@@ -86,8 +86,8 @@ class ImagePyramid(QObject):
             # 清除现有金字塔
             self.clear_pyramid()
             
-            # 保存原始图像
-            self.original_image = image_data.copy()
+            # 保存原始图像引用（不拷贝，节省内存）
+            self.original_image = image_data
             self.original_size = image_data.shape
             
             # 生成金字塔
@@ -167,11 +167,11 @@ class ImagePyramid(QObject):
         
         start_time = time.time()
         
-        # 添加原始图像（级别0）
+        # 添加原始图像（级别0）- 直接引用，不拷贝
         level_0 = PyramidLevel(
             level=0,
             scale_factor=1.0,
-            image_data=self.original_image.copy()
+            image_data=self.original_image
         )
         self.pyramid_levels[0] = level_0
         

@@ -18,7 +18,7 @@ class WindowLevelLUT:
     支持LRU缓存机制，避免重复计算
     """
     
-    def __init__(self, max_cache_size: int = 50):
+    def __init__(self, max_cache_size: int = 20):
         """初始化查找表管理器
         
         Args:
@@ -117,8 +117,8 @@ class WindowLevelLUT:
             # 移除最旧的缓存项（LRU）
             self.lut_cache.popitem(last=False)
         
-        # 添加新的缓存项
-        self.lut_cache[key] = lut.copy()
+        # 添加新的缓存项（不需要copy，LUT是只读的）
+        self.lut_cache[key] = lut
     
     def apply_lut(self, image_data: np.ndarray, window_width: float, window_level: float) -> np.ndarray:
         """应用查找表到图像数据
@@ -137,18 +137,51 @@ class WindowLevelLUT:
         # 获取查找表
         lut = self.get_lut(window_width, window_level)
 
-        # 最简单高效的实现
-        # 确保数据在有效范围内并转换为正确类型
+        # 高性能实现 - 平衡内存和速度
         if image_data.dtype == np.uint16:
-            # 已经是正确类型，直接使用
+            # 已经是正确类型，直接使用（零拷贝）
             indices = image_data
         else:
-            # 需要转换类型
-            indices = np.clip(image_data, 0, 65535).astype(np.uint16)
+            # 需要转换类型，智能选择策略
+            if image_data.size > 4 * 1024 * 1024:  # 大于4M像素才分块
+                return self._apply_lut_optimized(image_data, lut)
+            else:
+                # 中小图像直接转换（更快）
+                indices = np.clip(image_data, 0, 65535).astype(np.uint16)
 
         # 直接使用数组索引，这是最快的方法
         return lut[indices]
-    
+
+    def _apply_lut_optimized(self, image_data: np.ndarray, lut: np.ndarray) -> np.ndarray:
+        """优化的LUT应用 - 平衡内存和性能"""
+        # 获取图像形状
+        original_shape = image_data.shape
+
+        # 按行处理，避免flatten的开销
+        output = np.empty(original_shape, dtype=np.uint8)
+
+        # 计算每次处理的行数（控制内存使用）
+        rows_per_chunk = max(1, (2 * 1024 * 1024) // original_shape[1])  # 每块约2MB
+
+        # 按行块处理
+        for start_row in range(0, original_shape[0], rows_per_chunk):
+            end_row = min(start_row + rows_per_chunk, original_shape[0])
+
+            # 获取当前行块
+            row_chunk = image_data[start_row:end_row]
+
+            # 转换类型（如果需要）
+            if row_chunk.dtype != np.uint16:
+                # 使用更高效的转换
+                row_indices = np.clip(row_chunk, 0, 65535).astype(np.uint16)
+            else:
+                row_indices = row_chunk
+
+            # 应用LUT到当前行块
+            output[start_row:end_row] = lut[row_indices]
+
+        return output
+
     def clear_cache(self):
         """清空缓存"""
         self.lut_cache.clear()

@@ -12,10 +12,12 @@ from PyQt6.QtGui import QAction, QIcon
 
 from .image_view import ImageView
 from .control_panel import ControlPanel
+from .smooth_controller import SmoothWindowLevelController
 from ..core.image_manager import ImageManager
 from ..core.image_processor import ImageProcessor
 from ..core.image_processing_thread import ImageProcessingThread
 from ..utils.helpers import generate_output_filename, ensure_directory_exists
+from ..utils.memory_monitor import get_memory_monitor
 
 class MainWindow(QMainWindow):
     """主窗口类"""
@@ -32,6 +34,14 @@ class MainWindow(QMainWindow):
 
         # 当前处理任务ID
         self.current_task_id = None
+
+        # 初始化平滑窗宽窗位控制器
+        self.smooth_controller = SmoothWindowLevelController()
+        self.smooth_controller.values_changed.connect(self._apply_smooth_window_level)
+
+        # 初始化内存监控
+        self.memory_monitor = get_memory_monitor()
+        self.memory_monitor.start_tracing()
 
         self.init_ui()
         self.connect_signals()
@@ -191,9 +201,12 @@ class MainWindow(QMainWindow):
         )
         
         if file_path:
+            # 清理之前的缓存，释放内存
+            self._clear_memory_caches()
+
             self.status_bar.showMessage(f"正在加载: {file_path}")
             QApplication.processEvents()
-            
+
             if self.image_manager.load_dicom(file_path):
                 self.update_display()
                 self.control_panel.set_controls_enabled(True)
@@ -282,30 +295,59 @@ class MainWindow(QMainWindow):
             return algorithm_name
             
     def update_display(self):
-        """更新显示"""
-        if self.image_manager.original_image:
-            # 显示原始图像
+        """更新显示 - 性能优化版本"""
+        # 只更新可见的视图，提高性能
+        if self.is_split_view and self.image_manager.original_image:
+            # 双窗口模式：更新原始图像视图
             original_display = self.image_manager.get_windowed_image(
                 self.image_manager.original_image)
             self.original_view.set_image(original_display)
-            
+
         if self.image_manager.current_image:
-            # 显示处理后的图像
+            # 总是更新处理后的图像视图（主要视图）
             processed_display = self.image_manager.get_windowed_image(
                 self.image_manager.current_image)
             self.processed_view.set_image(processed_display)
             
     def on_window_width_changed(self, value: float):
-        """窗宽改变事件"""
+        """窗宽改变事件 - 直接处理，提高响应速度"""
         if self.image_manager.current_image:
-            self.image_manager.update_window_settings(value, self.image_manager.current_image.window_level)
-            self.update_display()
-            
+            # 获取当前窗位值
+            current_wl = self.image_manager.current_image.window_level
+            # 直接更新，不使用防抖动（提高响应速度）
+            self._apply_window_level_fast(value, current_wl)
+
     def on_window_level_changed(self, value: float):
-        """窗位改变事件"""
+        """窗位改变事件 - 直接处理，提高响应速度"""
         if self.image_manager.current_image:
-            self.image_manager.update_window_settings(self.image_manager.current_image.window_width, value)
+            # 获取当前窗宽值
+            current_ww = self.image_manager.current_image.window_width
+            # 直接更新，不使用防抖动（提高响应速度）
+            self._apply_window_level_fast(current_ww, value)
+
+    def _apply_window_level_fast(self, window_width: float, window_level: float):
+        """快速应用窗宽窗位调节 - 优化性能"""
+        if self.image_manager.current_image:
+            # 简化处理，减少开销
+            self.image_manager.update_window_settings(window_width, window_level)
             self.update_display()
+
+    def _apply_smooth_window_level(self, window_width: float, window_level: float):
+        """应用平滑的窗宽窗位调节（保留用于特殊情况）"""
+        if self.image_manager.current_image:
+            # 简化版本，减少监控开销
+            self.image_manager.update_window_settings(window_width, window_level)
+            self.update_display()
+
+            # 减少垃圾回收频率
+            if not hasattr(self, '_gc_counter'):
+                self._gc_counter = 0
+            self._gc_counter += 1
+
+            # 每5次调节才进行一次垃圾回收
+            if self._gc_counter % 5 == 0:
+                import gc
+                gc.collect()
     
     def auto_optimize_window(self):
         """自动优化窗宽窗位"""
@@ -519,13 +561,45 @@ class MainWindow(QMainWindow):
         """队列状态变化"""
         self.queue_label.setText(f"队列: {pending_count}/{total_count}")
 
+    def _clear_memory_caches(self):
+        """清理内存缓存"""
+        try:
+            # 清理LUT缓存
+            from ..core.window_level_lut import get_global_lut
+            lut = get_global_lut()
+            lut.clear_cache()
+
+            # 清理图像管理器缓存
+            self.image_manager.original_display_cache = None
+            self.image_manager.current_display_cache = None
+
+            # 清理图像金字塔缓存
+            from ..core.image_pyramid import clear_all_pyramids
+            clear_all_pyramids()
+
+            # 强制垃圾回收
+            import gc
+            gc.collect()
+
+            print("内存缓存已清理")
+
+        except Exception as e:
+            print(f"清理内存缓存时出错: {e}")
+
     def closeEvent(self, event):
         """关闭事件"""
+        # 清理内存缓存
+        self._clear_memory_caches()
+
         # 停止处理线程
         if hasattr(self, 'processing_thread'):
             self.processing_thread.stop_processing()
             self.processing_thread.wait(3000)  # 等待最多3秒
             if self.processing_thread.isRunning():
                 self.processing_thread.terminate()
+
+        # 停止平滑控制器
+        if hasattr(self, 'smooth_controller'):
+            self.smooth_controller.stop()
 
         event.accept()
