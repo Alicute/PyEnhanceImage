@@ -356,55 +356,108 @@ class MainWindow(QMainWindow):
                 gc.collect()
     
     def auto_optimize_window(self):
-        """自动优化窗宽窗位"""
+        """自动优化窗宽窗位 - 基于峰值检测的智能算法"""
         if self.image_manager.current_image is None:
             return
-        
+
         # 获取图像数据
         data = self.image_manager.current_image.data
-        
-        # 计算图像统计信息
         data_min = int(data.min())
         data_max = int(data.max())
         data_mean = float(data.mean())
-        
-        # 基于直方图分析自动计算窗宽窗位
-        # 计算直方图
-        hist, bins = np.histogram(data.flatten(), bins=256, range=(data_min, data_max))
-        
-        # 找到主要像素值的范围（排除极值）
         total_pixels = data.size
+
+        print(f"\n� 自动优化分析:")
+        print(f"   数据范围: {data_min} - {data_max}")
+        print(f"   数据均值: {data_mean:.1f}")
+        print(f"   图像大小: {data.shape}")
+
+        # 计算直方图
+        hist, bins = np.histogram(data.flatten(), bins=65536, range=(data_min, data_max))
+        bin_centers = bins[:-1]  # 使用bin中心值
         cumulative_pixels = np.cumsum(hist)
-        
-        # 找到5%和95%的像素值位置
-        lower_bound = np.where(cumulative_pixels >= total_pixels * 0.05)[0]
-        upper_bound = np.where(cumulative_pixels >= total_pixels * 0.95)[0]
-        
-        if len(lower_bound) > 0 and len(upper_bound) > 0:
-            lower_idx = lower_bound[0]
-            upper_idx = upper_bound[0]
-            
-            # 计算优化的窗宽窗位
-            window_level = (bins[lower_idx] + bins[upper_idx]) / 2
-            window_width = bins[upper_idx] - bins[lower_idx]
-            
-            # 确保窗宽合理
-            if window_width < 100:
-                window_width = 100
-            elif window_width > 60000:
-                window_width = 60000
+
+        # 检测过曝峰值
+        pixel_ratios = hist / total_pixels
+        major_peaks = np.where(pixel_ratios > 0.05)[0]  # 超过5%的bins
+
+        overexposed_peaks = []
+        for peak_idx in major_peaks:
+            peak_value = bin_centers[peak_idx]
+            peak_ratio = pixel_ratios[peak_idx]
+            # 过曝判断：灰度值 > 80%范围 且 像素数 > 5%
+            if peak_value > (data_min + (data_max - data_min) * 0.8):
+                overexposed_peaks.append((peak_value, peak_ratio))
+                print(f"   🔥 过曝峰值: {peak_value:.1f} ({peak_ratio*100:.1f}%像素)")
+
+        # 根据是否有过曝背景选择算法
+        if overexposed_peaks:
+            print(f"   🎯 检测到过曝背景，使用工件优化算法")
+
+            # 排除过曝区域，只在有效区域计算
+            overexposed_threshold = min(peak[0] for peak in overexposed_peaks)
+            noise_threshold = total_pixels * 0.0001
+
+            # 找到有效的工件数据区域
+            valid_bins = np.where((bin_centers < overexposed_threshold) & (hist > noise_threshold))[0]
+
+            if len(valid_bins) > 10:  # 确保有足够的有效数据
+                # 在有效区域内计算5%-95%
+                valid_pixels = np.sum(hist[valid_bins])
+                valid_cumulative = np.cumsum(hist[valid_bins])
+
+                lower_threshold = valid_pixels * 0.05
+                upper_threshold = valid_pixels * 0.95
+
+                lower_idx = np.where(valid_cumulative >= lower_threshold)[0]
+                upper_idx = np.where(valid_cumulative >= upper_threshold)[0]
+
+                if len(lower_idx) > 0 and len(upper_idx) > 0:
+                    lower_value = bin_centers[valid_bins[lower_idx[0]]]
+                    upper_value = bin_centers[valid_bins[upper_idx[0]]]
+
+                    window_level = (lower_value + upper_value) / 2
+                    window_width = (upper_value - lower_value) * 1.5  # 扩展50%
+
+                    print(f"   工件区域: {lower_value:.1f} - {upper_value:.1f}")
+                else:
+                    # 回退：使用有效区域的全范围
+                    lower_value = bin_centers[valid_bins[0]]
+                    upper_value = bin_centers[valid_bins[-1]]
+                    window_level = (lower_value + upper_value) / 2
+                    window_width = (upper_value - lower_value) * 2
+                    print(f"   回退算法: 使用有效区域全范围")
+            else:
+                # 最终回退：使用中位数算法
+                median_value = np.median(data)
+                window_level = median_value * 0.8
+                window_width = data.std() * 3
+                print(f"   最终回退: 使用中位数算法")
         else:
-            # 回退到简单统计
-            window_width = data_max - data_min
-            window_level = (data_min + data_max) / 2
-        
-        # 应用优化的窗宽窗位
+            print(f"   ✅ 未检测到过曝背景，使用标准算法")
+
+            # 标准5%-95%算法
+            lower_bound = np.where(cumulative_pixels >= total_pixels * 0.05)[0]
+            upper_bound = np.where(cumulative_pixels >= total_pixels * 0.95)[0]
+
+            if len(lower_bound) > 0 and len(upper_bound) > 0:
+                lower_value = bin_centers[lower_bound[0]]
+                upper_value = bin_centers[upper_bound[0]]
+                window_level = (lower_value + upper_value) / 2
+                window_width = upper_value - lower_value
+            else:
+                # 回退到全范围
+                window_width = data_max - data_min
+                window_level = (data_min + data_max) / 2
+
+        # 限制窗宽范围
+        window_width = max(100, min(window_width, 60000))
+
+        print(f"   ✅ 最终设置: 窗宽={window_width:.0f}, 窗位={window_level:.0f}")
+
+        # 应用设置
         self.control_panel.set_window_settings(window_width, window_level)
-        
-        # 更新图像信息显示
         self.control_panel.update_image_info(data_min, data_max, data_mean)
-        
-        # 更新状态栏
         self.status_bar.showMessage(f"自动优化: 窗宽={window_width:.0f}, 窗位={window_level:.0f}")
         
     def on_image_wheel_event(self, view, event):
