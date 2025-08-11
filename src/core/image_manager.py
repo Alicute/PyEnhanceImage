@@ -246,7 +246,89 @@ class ImageManager:
             windowed_data = 255 - windowed_data
 
         return windowed_data
-    
+
+    def calculate_smart_slider_ranges(self, image_data: ImageData) -> tuple:
+        """计算智能滑块范围
+
+        Args:
+            image_data: 图像数据
+
+        Returns:
+            tuple: ((ww_min, ww_max), (wl_min, wl_max))
+        """
+        if image_data is None:
+            return (1, 65535), (0, 65535)
+
+        data = image_data.data
+        current_ww = image_data.window_width
+        current_wl = image_data.window_level
+
+        # 方法1：基于直方图找有效数据范围
+        hist, bins = np.histogram(data.flatten(), bins=1000, range=(data.min(), data.max()))
+        total_pixels = data.size
+        noise_threshold = total_pixels * 0.001  # 0.1%以下认为是噪声
+
+        # 找到有效的bins（排除噪声）
+        effective_bins = np.where(hist > noise_threshold)[0]
+
+        if len(effective_bins) > 0:
+            effective_min = bins[effective_bins[0]]
+            effective_max = bins[effective_bins[-1]]
+        else:
+            # 回退到数据范围
+            effective_min = float(data.min())
+            effective_max = float(data.max())
+
+        print(f"🎯 智能范围计算:")
+        print(f"   原始数据范围: {data.min()} - {data.max()}")
+        print(f"   有效数据范围: {effective_min:.1f} - {effective_max:.1f}")
+        print(f"   当前窗宽窗位: {current_ww:.1f}, {current_wl:.1f}")
+
+        # 方法2：基于当前值和有效范围计算智能范围
+        if current_ww > 0 and current_wl > 0:
+            # 窗位范围：围绕当前值，考虑有效数据范围
+            effective_range = effective_max - effective_min
+
+            # 窗位范围：当前值 ± 窗宽的2倍，但不超出有效范围太多
+            wl_margin = max(current_ww * 2, effective_range * 0.1)
+            wl_min = max(effective_min - effective_range * 0.1, current_wl - wl_margin)
+            wl_max = min(effective_max + effective_range * 0.1, current_wl + wl_margin)
+
+            # 窗宽范围：当前值的0.1倍到5倍，但有合理上限
+            ww_min = max(1, current_ww // 10)
+            ww_max = min(current_ww * 5, effective_range * 3)
+
+            # 确保范围不会太小
+            if ww_max - ww_min < 1000:
+                ww_max = ww_min + 1000
+            if wl_max - wl_min < current_ww:
+                wl_center = (wl_min + wl_max) / 2
+                wl_min = wl_center - current_ww
+                wl_max = wl_center + current_ww
+
+        else:
+            # 回退策略：使用有效数据范围
+            wl_min, wl_max = effective_min, effective_max
+            ww_min = 1
+            ww_max = effective_max - effective_min
+
+        # 确保范围合理
+        ww_min = max(1, int(ww_min))
+        ww_max = min(65535, int(ww_max))
+        wl_min = max(0, int(wl_min))
+        wl_max = min(65535, int(wl_max))
+
+        # 确保最小值小于最大值
+        if ww_min >= ww_max:
+            ww_max = ww_min + 1000
+        if wl_min >= wl_max:
+            wl_max = wl_min + 1000
+
+        print(f"   智能窗宽范围: {ww_min} - {ww_max}")
+        print(f"   智能窗位范围: {wl_min} - {wl_max}")
+
+        return (ww_min, ww_max), (wl_min, wl_max)
+
     def _refresh_display_cache(self):
         """刷新显示缓存"""
         if self.original_image:

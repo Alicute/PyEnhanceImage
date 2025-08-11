@@ -115,8 +115,18 @@ class ControlPanel(QWidget):
         self.ww_slider.setValue(1000)
         self.ww_slider.valueChanged.connect(self.on_window_width_changed)
         ww_layout.addWidget(self.ww_slider)
-        self.ww_label = QLabel("1000")
-        ww_layout.addWidget(self.ww_label)
+
+        # 窗宽数值输入框（带上下按钮）
+        self.ww_spinbox = QSpinBox()
+        self.ww_spinbox.setRange(1, 65535)
+        self.ww_spinbox.setValue(1000)
+        self.ww_spinbox.setMinimumWidth(80)
+        self.ww_spinbox.valueChanged.connect(self.on_ww_spinbox_changed)
+        # 加速设置
+        self.ww_spinbox.setAccelerated(True)  # 启用长按加速
+        self.ww_spinbox.setSingleStep(1)      # 单次步进值
+        self.ww_spinbox.setKeyboardTracking(False)  # 减少实时触发
+        ww_layout.addWidget(self.ww_spinbox)
         layout.addLayout(ww_layout)
         
         # 窗位滑块
@@ -127,8 +137,18 @@ class ControlPanel(QWidget):
         self.wl_slider.setValue(32768)
         self.wl_slider.valueChanged.connect(self.on_window_level_changed)
         wl_layout.addWidget(self.wl_slider)
-        self.wl_label = QLabel("32768")
-        wl_layout.addWidget(self.wl_label)
+
+        # 窗位数值输入框（带上下按钮）
+        self.wl_spinbox = QSpinBox()
+        self.wl_spinbox.setRange(0, 65535)
+        self.wl_spinbox.setValue(32768)
+        self.wl_spinbox.setMinimumWidth(80)
+        self.wl_spinbox.valueChanged.connect(self.on_wl_spinbox_changed)
+        # 加速设置  
+        self.wl_spinbox.setAccelerated(True)  # 启用长按加速
+        self.wl_spinbox.setSingleStep(1)      # 单次步进值
+        self.wl_spinbox.setKeyboardTracking(False)  # 减少实时触发
+        wl_layout.addWidget(self.wl_spinbox)
         layout.addLayout(wl_layout)
         
         # 数据信息显示
@@ -386,13 +406,39 @@ class ControlPanel(QWidget):
         return widget
         
     def on_window_width_changed(self, value):
-        """窗宽改变事件"""
-        self.ww_label.setText(str(value))
+        """窗宽滑块改变事件"""
+        # 同步更新数值输入框，但不触发其事件
+        self.ww_spinbox.blockSignals(True)
+        self.ww_spinbox.setValue(value)
+        self.ww_spinbox.blockSignals(False)
+
         self.window_width_changed.emit(float(value))
-        
+
     def on_window_level_changed(self, value):
-        """窗位改变事件"""
-        self.wl_label.setText(str(value))
+        """窗位滑块改变事件"""
+        # 同步更新数值输入框，但不触发其事件
+        self.wl_spinbox.blockSignals(True)
+        self.wl_spinbox.setValue(value)
+        self.wl_spinbox.blockSignals(False)
+
+        self.window_level_changed.emit(float(value))
+
+    def on_ww_spinbox_changed(self, value):
+        """窗宽数值输入框改变事件"""
+        # 同步更新滑块，但不触发其事件
+        self.ww_slider.blockSignals(True)
+        self.ww_slider.setValue(value)
+        self.ww_slider.blockSignals(False)
+
+        self.window_width_changed.emit(float(value))
+
+    def on_wl_spinbox_changed(self, value):
+        """窗位数值输入框改变事件"""
+        # 同步更新滑块，但不触发其事件
+        self.wl_slider.blockSignals(True)
+        self.wl_slider.setValue(value)
+        self.wl_slider.blockSignals(False)
+
         self.window_level_changed.emit(float(value))
         
     def set_controls_enabled(self, enabled: bool):
@@ -433,6 +479,10 @@ class ControlPanel(QWidget):
         """设置窗宽窗位"""
         self.ww_slider.setValue(int(window_width))
         self.wl_slider.setValue(int(window_level))
+
+        # 同步更新数值输入框
+        self.ww_spinbox.setValue(int(window_width))
+        self.wl_spinbox.setValue(int(window_level))
     
     def auto_window(self):
         """自动优化窗宽窗位"""
@@ -473,6 +523,8 @@ class ControlPanel(QWidget):
         self.overview_btn.setEnabled(enabled)
         self.ww_slider.setEnabled(enabled)
         self.wl_slider.setEnabled(enabled)
+        self.ww_spinbox.setEnabled(enabled)
+        self.wl_spinbox.setEnabled(enabled)
         self.invert_checkbox.setEnabled(enabled)
 
     def on_invert_changed(self, state):
@@ -483,3 +535,38 @@ class ControlPanel(QWidget):
     def get_invert_state(self) -> bool:
         """获取当前反相状态"""
         return self.invert_checkbox.isChecked()
+
+    def update_slider_ranges(self, ww_range: tuple, wl_range: tuple):
+        """更新滑块范围
+
+        Args:
+            ww_range: (ww_min, ww_max) 窗宽范围
+            wl_range: (wl_min, wl_max) 窗位范围
+        """
+        ww_min, ww_max = ww_range
+        wl_min, wl_max = wl_range
+
+        print(f"📊 更新滑块范围:")
+        print(f"   窗宽: {ww_min} - {ww_max}")
+        print(f"   窗位: {wl_min} - {wl_max}")
+
+        # 暂时断开信号连接，避免触发事件
+        self.ww_slider.valueChanged.disconnect()
+        self.wl_slider.valueChanged.disconnect()
+        self.ww_spinbox.valueChanged.disconnect()
+        self.wl_spinbox.valueChanged.disconnect()
+
+        # 更新滑块和数值输入框范围
+        self.ww_slider.setRange(ww_min, ww_max)
+        self.wl_slider.setRange(wl_min, wl_max)
+        self.ww_spinbox.setRange(ww_min, ww_max)
+        self.wl_spinbox.setRange(wl_min, wl_max)
+
+        # 重新连接信号
+        self.ww_slider.valueChanged.connect(self.on_window_width_changed)
+        self.wl_slider.valueChanged.connect(self.on_window_level_changed)
+        self.ww_spinbox.valueChanged.connect(self.on_ww_spinbox_changed)
+        self.wl_spinbox.valueChanged.connect(self.on_wl_spinbox_changed)
+
+        # 不再在标签中显示范围，为输入框腾出空间
+        # 范围信息在控制台日志中可以看到

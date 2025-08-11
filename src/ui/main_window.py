@@ -210,7 +210,8 @@ class MainWindow(QMainWindow):
             if self.image_manager.load_dicom(file_path):
                 self.update_display()
                 self.control_panel.set_controls_enabled(True)
-                # 自动优化窗宽窗位
+
+                # 自动优化窗宽窗位（内部会更新智能滑块范围）
                 self.auto_optimize_window()
                 self.status_bar.showMessage(f"已加载: {os.path.basename(file_path)}")
             else:
@@ -461,6 +462,10 @@ class MainWindow(QMainWindow):
         # 应用设置
         self.control_panel.set_window_settings(window_width, window_level)
         self.control_panel.update_image_info(data_min, data_max, data_mean)
+
+        # 自动优化后更新智能滑块范围
+        self.update_smart_slider_ranges()
+
         self.status_bar.showMessage(f"自动优化: 窗宽={window_width:.0f}, 窗位={window_level:.0f}")
         
     def on_image_wheel_event(self, view, event):
@@ -482,6 +487,16 @@ class MainWindow(QMainWindow):
         self.sync_view_action.setChecked(enabled)
         self.control_panel.sync_checkbox.setChecked(enabled)
         
+    def update_smart_slider_ranges(self):
+        """更新智能滑块范围"""
+        if self.image_manager.current_image:
+            # 计算智能范围
+            ww_range, wl_range = self.image_manager.calculate_smart_slider_ranges(
+                self.image_manager.current_image)
+
+            # 更新控制面板的滑块范围
+            self.control_panel.update_slider_ranges(ww_range, wl_range)
+
     def on_invert_changed(self, is_inverted: bool):
         """反相状态改变处理"""
         # 更新显示，不重置视图缩放
@@ -562,10 +577,10 @@ class MainWindow(QMainWindow):
     def show_about(self):
         """显示关于对话框"""
         QMessageBox.about(self, "关于", 
-                         "交互式图像增强实验平台 v1.0\\n\\n"
-                         "基于Python的桌面GUI应用程序，\\n"
-                         "为工业领域的测试工程师提供\\n"
-                         "交互式的图像增强实验与教学平台。\\n\\n"
+                         "交互式图像增强实验平台 v1.0"
+                         "基于Python的桌面GUI应用程序，"
+                         "为工业领域的测试工程师提供"
+                         "交互式的图像增强实验与教学平台。"
                          "技术栈: PyQt6, pydicom, scikit-image")
         
     def on_task_started(self, task_id: str):
