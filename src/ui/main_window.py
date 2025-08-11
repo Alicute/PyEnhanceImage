@@ -161,9 +161,8 @@ class MainWindow(QMainWindow):
         self.control_panel.sync_view_toggled.connect(self.toggle_view_sync)
         self.control_panel.window_auto_requested.connect(self.auto_optimize_window)
         
-        # 图像视图信号
-        self.original_view.wheelEvent = lambda event: self.on_image_wheel_event(self.original_view, event)
-        self.processed_view.wheelEvent = lambda event: self.on_image_wheel_event(self.processed_view, event)
+        # 移除wheelEvent覆盖，让ImageView直接处理
+        # 如果需要同步，可以通过信号连接
 
         # 多线程处理信号
         self.processing_thread.task_started.connect(self.on_task_started)
@@ -349,9 +348,9 @@ class MainWindow(QMainWindow):
         
     def on_image_wheel_event(self, view, event):
         """图像视图滚轮事件"""
-        # 调用原始的滚轮事件处理
-        super(type(view), view).wheelEvent(event)
-        
+        # 直接调用ImageView的wheelEvent方法
+        view.wheelEvent(event)
+
         # 如果启用了视图同步，同步另一个视图
         if self.view_sync_enabled:
             other_view = self.processed_view if view == self.original_view else self.original_view

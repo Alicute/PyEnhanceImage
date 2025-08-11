@@ -79,11 +79,18 @@ class ImageProcessor:
         # 应用非锐化掩模
         sharpened = filters.unsharp_mask(data_float, radius=radius, amount=amount)
         
-        # 恢复到原始范围和类型
-        sharpened = (sharpened - sharpened.min()) / (sharpened.max() - sharpened.min())
-        sharpened = sharpened * (data.max() - data.min()) + data.min()
-        
-        return sharpened.astype(np.uint16)
+        # 恢复到原始范围和类型（避免除零错误）
+        sharpened_min = sharpened.min()
+        sharpened_max = sharpened.max()
+
+        if sharpened_max > sharpened_min:
+            sharpened = (sharpened - sharpened_min) / (sharpened_max - sharpened_min)
+            sharpened = sharpened * (data.max() - data.min()) + data.min()
+        else:
+            # 如果图像是常数，直接返回原图像
+            sharpened = data.astype(np.float64)
+
+        return np.clip(sharpened, 0, 65535).astype(np.uint16)
     
     @staticmethod
     def morphological_operation(data: np.ndarray, operation: str, disk_size: int = 3) -> np.ndarray:
