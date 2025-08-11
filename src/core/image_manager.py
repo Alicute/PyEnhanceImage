@@ -193,36 +193,46 @@ class ImageManager:
         
         return True
     
-    def get_windowed_image(self, image_data: ImageData) -> np.ndarray:
-        """应用窗宽窗位调整 - 优化版本，使用缓存"""
+    def get_windowed_image(self, image_data: ImageData, invert: bool = False) -> np.ndarray:
+        """应用窗宽窗位调整 - 优化版本，使用缓存
+
+        Args:
+            image_data: 图像数据
+            invert: 是否反相显示
+        """
         if image_data is None:
             return np.zeros((100, 100), dtype=np.uint8)
-        
-        # 检查是否使用缓存
-        current_settings = (image_data.window_width, image_data.window_level)
+
+        # 检查是否使用缓存（包括反相状态）
+        current_settings = (image_data.window_width, image_data.window_level, invert)
         if current_settings == self.last_window_settings:
             # 返回缓存的显示数据
             if image_data.id == self.original_image_id and self.original_display_cache is not None:
                 return self.original_display_cache
             elif image_data.id == self.current_image_id and self.current_display_cache is not None:
                 return self.current_display_cache
-        
+
         # 重新计算显示数据
-        display_data = self._calculate_windowed_display(image_data)
-        
+        display_data = self._calculate_windowed_display(image_data, invert)
+
         # 更新缓存（不需要copy，显示数据是只读的）
         if image_data.id == self.original_image_id:
             self.original_display_cache = display_data
         elif image_data.id == self.current_image_id:
             self.current_display_cache = display_data
-        
+
         # 更新最后使用的窗宽窗位设置
         self.last_window_settings = current_settings
-        
+
         return display_data
     
-    def _calculate_windowed_display(self, image_data: ImageData) -> np.ndarray:
-        """计算窗宽窗位显示数据 - 使用LUT优化"""
+    def _calculate_windowed_display(self, image_data: ImageData, invert: bool = False) -> np.ndarray:
+        """计算窗宽窗位显示数据 - 使用LUT优化
+
+        Args:
+            image_data: 图像数据
+            invert: 是否反相显示
+        """
         data = image_data.data
         window_width = image_data.window_width
         window_level = image_data.window_level
@@ -230,6 +240,10 @@ class ImageManager:
         # 使用LUT优化的窗宽窗位计算
         lut = get_global_lut()
         windowed_data = lut.apply_lut(data, window_width, window_level)
+
+        # 如果启用反相，对显示数据进行反相
+        if invert:
+            windowed_data = 255 - windowed_data
 
         return windowed_data
     

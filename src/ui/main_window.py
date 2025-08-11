@@ -183,9 +183,9 @@ class MainWindow(QMainWindow):
         self.control_panel.window_level_changed.connect(self.on_window_level_changed)
         self.control_panel.sync_view_toggled.connect(self.toggle_view_sync)
         self.control_panel.window_auto_requested.connect(self.auto_optimize_window)
+        self.control_panel.invert_changed.connect(self.on_invert_changed)
         
-        # 移除wheelEvent覆盖，让ImageView直接处理
-        # 如果需要同步，可以通过信号连接
+
 
         # 多线程处理信号
         self.processing_thread.task_started.connect(self.on_task_started)
@@ -300,17 +300,20 @@ class MainWindow(QMainWindow):
         Args:
             reset_view: 是否重置视图缩放，默认True
         """
+        # 获取当前反相状态
+        is_inverted = self.control_panel.get_invert_state()
+
         # 只更新可见的视图，提高性能
         if self.is_split_view and self.image_manager.original_image:
             # 双窗口模式：更新原始图像视图
             original_display = self.image_manager.get_windowed_image(
-                self.image_manager.original_image)
+                self.image_manager.original_image, invert=is_inverted)
             self.original_view.set_image(original_display, reset_view)
 
         if self.image_manager.current_image:
             # 总是更新处理后的图像视图（主要视图）
             processed_display = self.image_manager.get_windowed_image(
-                self.image_manager.current_image)
+                self.image_manager.current_image, invert=is_inverted)
             self.processed_view.set_image(processed_display, reset_view)
             
     def on_window_width_changed(self, value: float):
@@ -479,6 +482,14 @@ class MainWindow(QMainWindow):
         self.sync_view_action.setChecked(enabled)
         self.control_panel.sync_checkbox.setChecked(enabled)
         
+    def on_invert_changed(self, is_inverted: bool):
+        """反相状态改变处理"""
+        # 更新显示，不重置视图缩放
+        self.update_display(reset_view=False)
+
+        status = "启用" if is_inverted else "禁用"
+        self.status_bar.showMessage(f"反相显示已{status}")
+
     def toggle_split_view(self):
         """切换分窗显示"""
         self.is_split_view = self.split_view_action.isChecked()

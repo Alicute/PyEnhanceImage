@@ -21,6 +21,7 @@ class ControlPanel(QWidget):
     window_level_changed = pyqtSignal(float)
     sync_view_toggled = pyqtSignal(bool)
     window_auto_requested = pyqtSignal()
+    invert_changed = pyqtSignal(bool)
     
     def __init__(self):
         super().__init__()
@@ -84,6 +85,15 @@ class ControlPanel(QWidget):
         group = QGroupBox("窗宽窗位调节")
         layout = QVBoxLayout()
         
+        # 反相复选框
+        invert_layout = QHBoxLayout()
+        self.invert_checkbox = QCheckBox("反相显示")
+        self.invert_checkbox.setChecked(False)  # 默认不反相
+        self.invert_checkbox.stateChanged.connect(self.on_invert_changed)
+        invert_layout.addWidget(self.invert_checkbox)
+        invert_layout.addStretch()  # 添加弹性空间
+        layout.addLayout(invert_layout)
+
         # 预设模式按钮
         preset_layout = QHBoxLayout()
         self.auto_btn = QPushButton("自动优化")
@@ -463,3 +473,13 @@ class ControlPanel(QWidget):
         self.overview_btn.setEnabled(enabled)
         self.ww_slider.setEnabled(enabled)
         self.wl_slider.setEnabled(enabled)
+        self.invert_checkbox.setEnabled(enabled)
+
+    def on_invert_changed(self, state):
+        """反相状态改变处理"""
+        is_inverted = state == Qt.CheckState.Checked.value
+        self.invert_changed.emit(is_inverted)
+
+    def get_invert_state(self) -> bool:
+        """获取当前反相状态"""
+        return self.invert_checkbox.isChecked()
