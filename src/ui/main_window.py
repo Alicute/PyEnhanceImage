@@ -62,16 +62,19 @@ class MainWindow(QMainWindow):
         image_layout = QVBoxLayout()
         
         # 创建图像显示控件
-        image_splitter = QSplitter(Qt.Orientation.Vertical)
-        
+        self.image_splitter = QSplitter(Qt.Orientation.Vertical)
+
         self.original_view = ImageView("原始图像")
         self.processed_view = ImageView("处理结果")
+
+        self.image_splitter.addWidget(self.original_view)
+        self.image_splitter.addWidget(self.processed_view)
+
+        # 默认只显示处理结果窗口（下面的窗口）
+        self.image_splitter.setSizes([0, 800])  # 上面窗口高度为0
+        self.is_split_view = False  # 分窗状态标志
         
-        image_splitter.addWidget(self.original_view)
-        image_splitter.addWidget(self.processed_view)
-        image_splitter.setSizes([400, 400])
-        
-        image_layout.addWidget(image_splitter)
+        image_layout.addWidget(self.image_splitter)
         image_widget.setLayout(image_layout)
         
         # 添加到分割器
@@ -140,9 +143,19 @@ class MainWindow(QMainWindow):
         self.sync_view_action.triggered.connect(self.toggle_view_sync)
         view_menu.addAction(self.sync_view_action)
         
+        # 分窗菜单
+        window_menu = menubar.addMenu("分窗")
+
+        # 分窗切换
+        self.split_view_action = QAction("切换到双窗口", self)
+        self.split_view_action.setCheckable(True)
+        self.split_view_action.setChecked(False)  # 默认单窗口
+        self.split_view_action.triggered.connect(self.toggle_split_view)
+        window_menu.addAction(self.split_view_action)
+
         # 帮助菜单
         help_menu = menubar.addMenu("帮助")
-        
+
         # 关于
         about_action = QAction("关于", self)
         about_action.triggered.connect(self.show_about)
@@ -365,6 +378,21 @@ class MainWindow(QMainWindow):
         self.sync_view_action.setChecked(enabled)
         self.control_panel.sync_checkbox.setChecked(enabled)
         
+    def toggle_split_view(self):
+        """切换分窗显示"""
+        self.is_split_view = self.split_view_action.isChecked()
+
+        if self.is_split_view:
+            # 显示双窗口：上面原图，下面处理结果
+            self.image_splitter.setSizes([400, 400])
+            self.status_bar.showMessage("已切换到双窗口显示")
+            self.split_view_action.setText("切换到单窗口")
+        else:
+            # 显示单窗口：只显示处理结果
+            self.image_splitter.setSizes([0, 800])
+            self.status_bar.showMessage("已切换到单窗口显示")
+            self.split_view_action.setText("切换到双窗口")
+
     def reset_views(self):
         """重置视图"""
         self.original_view.reset_view()
