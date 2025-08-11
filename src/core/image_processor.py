@@ -5,6 +5,10 @@ import numpy as np
 from skimage import exposure, filters, morphology, restoration
 from typing import Dict, Any, Tuple, Optional
 
+# 导入新的处理器模块
+from .frequency_processor import FrequencyProcessor
+from .edge_processor import EdgeProcessor
+
 class ImageProcessor:
     """图像处理算法集合"""
     
@@ -228,3 +232,54 @@ class ImageProcessor:
                 }
             }
         }
+
+    # ==================== 频域增强方法 ====================
+
+    @staticmethod
+    def ideal_low_pass_filter(data: np.ndarray, cutoff_ratio: float = 0.1) -> np.ndarray:
+        """理想低通滤波"""
+        return FrequencyProcessor.ideal_low_pass(data, cutoff_ratio)
+
+    @staticmethod
+    def ideal_high_pass_filter(data: np.ndarray, cutoff_ratio: float = 0.1) -> np.ndarray:
+        """理想高通滤波"""
+        return FrequencyProcessor.ideal_high_pass(data, cutoff_ratio)
+
+    @staticmethod
+    def gaussian_low_pass_filter(data: np.ndarray, cutoff_ratio: float = 0.1) -> np.ndarray:
+        """高斯低通滤波"""
+        return FrequencyProcessor.gaussian_low_pass(data, cutoff_ratio)
+
+    @staticmethod
+    def gaussian_high_pass_filter(data: np.ndarray, cutoff_ratio: float = 0.1) -> np.ndarray:
+        """高斯高通滤波"""
+        return FrequencyProcessor.gaussian_high_pass(data, cutoff_ratio)
+
+    # ==================== 边缘检测方法 ====================
+
+    @staticmethod
+    def sobel_edge_detection(data: np.ndarray) -> np.ndarray:
+        """Sobel边缘检测"""
+        return EdgeProcessor.sobel_edge(data)
+
+    @staticmethod
+    def canny_edge_detection(data: np.ndarray, sigma: float = 1.0,
+                           low_threshold: float = 0.1, high_threshold: float = 0.2) -> np.ndarray:
+        """Canny边缘检测"""
+        return EdgeProcessor.canny_edge(data, sigma, low_threshold, high_threshold)
+
+    @staticmethod
+    def laplacian_edge_detection(data: np.ndarray) -> np.ndarray:
+        """Laplacian边缘检测"""
+        return EdgeProcessor.laplacian_edge(data)
+
+    @staticmethod
+    def edge_enhancement(data: np.ndarray, edge_strength: float = 1.0,
+                        edge_method: str = 'sobel') -> np.ndarray:
+        """边缘增强"""
+        return EdgeProcessor.edge_enhancement(data, edge_strength, edge_method)
+
+    @staticmethod
+    def roberts_edge_detection(data: np.ndarray) -> np.ndarray:
+        """Roberts边缘检测"""
+        return EdgeProcessor.roberts_edge(data)

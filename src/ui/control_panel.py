@@ -159,42 +159,50 @@ class ControlPanel(QWidget):
         return group
         
     def create_algorithm_group(self) -> QGroupBox:
-        """创建图像增强算法组"""
-        group = QGroupBox("图像增强算法")
+        """创建数字影像增强6步骤算法组"""
+        group = QGroupBox("数字影像增强6步骤")
         layout = QVBoxLayout()
-        
+
         # 创建滚动区域
         scroll = QScrollArea()
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout()
-        
-        # 灰度变换
-        gamma_group = self.create_gamma_group()
-        scroll_layout.addWidget(gamma_group)
-        
-        # 直方图调整
-        hist_group = self.create_histogram_group()
-        scroll_layout.addWidget(hist_group)
-        
-        # 空间域滤波
-        filter_group = self.create_filter_group()
-        scroll_layout.addWidget(filter_group)
-        
-        # 形态学操作
-        morph_group = self.create_morphology_group()
-        scroll_layout.addWidget(morph_group)
-        
+
+        # 1️⃣ 灰度变换
+        step1_group = self.create_step1_gray_transform_group()
+        scroll_layout.addWidget(step1_group)
+
+        # 2️⃣ 直方图调整
+        step2_group = self.create_step2_histogram_group()
+        scroll_layout.addWidget(step2_group)
+
+        # 3️⃣ 空间域滤波
+        step3_group = self.create_step3_spatial_filter_group()
+        scroll_layout.addWidget(step3_group)
+
+        # 4️⃣ 频域增强
+        step4_group = self.create_step4_frequency_group()
+        scroll_layout.addWidget(step4_group)
+
+        # 5️⃣ 边缘检测
+        step5_group = self.create_step5_edge_detection_group()
+        scroll_layout.addWidget(step5_group)
+
+        # 6️⃣ 形态学操作
+        step6_group = self.create_step6_morphology_group()
+        scroll_layout.addWidget(step6_group)
+
         scroll_widget.setLayout(scroll_layout)
         scroll.setWidget(scroll_widget)
         scroll.setWidgetResizable(True)
-        
+
         layout.addWidget(scroll)
         group.setLayout(layout)
         return group
         
-    def create_gamma_group(self) -> QGroupBox:
-        """创建Gamma校正组"""
-        group = QGroupBox("灰度变换")
+    def create_step1_gray_transform_group(self) -> QGroupBox:
+        """创建第1步：灰度变换组"""
+        group = QGroupBox("1️⃣ 灰度变换")
         layout = QVBoxLayout()
         
         # Gamma校正
@@ -217,9 +225,9 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         return group
         
-    def create_histogram_group(self) -> QGroupBox:
-        """创建直方图调整组"""
-        group = QGroupBox("直方图调整")
+    def create_step2_histogram_group(self) -> QGroupBox:
+        """创建第2步：直方图调整组"""
+        group = QGroupBox("2️⃣ 直方图调整")
         layout = QVBoxLayout()
         
         # 全局均衡化
@@ -249,9 +257,9 @@ class ControlPanel(QWidget):
         group.setLayout(layout)
         return group
         
-    def create_filter_group(self) -> QGroupBox:
-        """创建空间域滤波组"""
-        group = QGroupBox("空间域滤波")
+    def create_step3_spatial_filter_group(self) -> QGroupBox:
+        """创建第3步：空间域滤波组"""
+        group = QGroupBox("3️⃣ 空间域滤波")
         layout = QVBoxLayout()
         
         # 高斯滤波
@@ -323,10 +331,99 @@ class ControlPanel(QWidget):
         layout.addLayout(usm_layout)
         group.setLayout(layout)
         return group
-        
-    def create_morphology_group(self) -> QGroupBox:
-        """创建形态学操作组"""
-        group = QGroupBox("形态学操作")
+
+    def create_step4_frequency_group(self) -> QGroupBox:
+        """创建第4步：频域增强组"""
+        group = QGroupBox("4️⃣ 频域增强")
+        layout = QVBoxLayout()
+
+        # 滤波器类型选择
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("滤波器类型:"))
+        self.frequency_filter_combo = QComboBox()
+        self.frequency_filter_combo.addItems([
+            "理想低通滤波", "高斯低通滤波",
+            "理想高通滤波", "高斯高通滤波"
+        ])
+        filter_layout.addWidget(self.frequency_filter_combo)
+        layout.addLayout(filter_layout)
+
+        # 截止频率
+        cutoff_layout = QHBoxLayout()
+        cutoff_layout.addWidget(QLabel("截止频率:"))
+        self.frequency_cutoff_slider = QSlider(Qt.Orientation.Horizontal)
+        self.frequency_cutoff_slider.setRange(1, 50)  # 0.01-0.5 * 100
+        self.frequency_cutoff_slider.setValue(10)  # 默认0.1
+        cutoff_layout.addWidget(self.frequency_cutoff_slider)
+
+        self.frequency_cutoff_spinbox = QSpinBox()
+        self.frequency_cutoff_spinbox.setRange(1, 50)
+        self.frequency_cutoff_spinbox.setValue(10)
+        self.frequency_cutoff_spinbox.setSuffix("%")
+        cutoff_layout.addWidget(self.frequency_cutoff_spinbox)
+        layout.addLayout(cutoff_layout)
+
+        # 同步滑块和数值框
+        self.frequency_cutoff_slider.valueChanged.connect(
+            lambda v: self.frequency_cutoff_spinbox.setValue(v))
+        self.frequency_cutoff_spinbox.valueChanged.connect(
+            lambda v: self.frequency_cutoff_slider.setValue(v))
+
+        # 应用按钮
+        self.frequency_apply_btn = QPushButton("应用频域滤波")
+        self.frequency_apply_btn.clicked.connect(self.apply_frequency_filter)
+        layout.addWidget(self.frequency_apply_btn)
+
+        group.setLayout(layout)
+        return group
+
+    def create_step5_edge_detection_group(self) -> QGroupBox:
+        """创建第5步：边缘检测组"""
+        group = QGroupBox("5️⃣ 边缘检测")
+        layout = QVBoxLayout()
+
+        # 检测算子选择
+        edge_layout = QHBoxLayout()
+        edge_layout.addWidget(QLabel("检测算子:"))
+        self.edge_method_combo = QComboBox()
+        self.edge_method_combo.addItems([
+            "Sobel边缘检测", "Canny边缘检测",
+            "Laplacian边缘检测", "边缘增强", "Roberts边缘检测"
+        ])
+        edge_layout.addWidget(self.edge_method_combo)
+        layout.addLayout(edge_layout)
+
+        # 参数调节（根据选择的算法动态显示）
+        param_layout = QHBoxLayout()
+        param_layout.addWidget(QLabel("参数:"))
+        self.edge_param_slider = QSlider(Qt.Orientation.Horizontal)
+        self.edge_param_slider.setRange(1, 30)  # 0.1-3.0 * 10
+        self.edge_param_slider.setValue(10)  # 默认1.0
+        param_layout.addWidget(self.edge_param_slider)
+
+        self.edge_param_spinbox = QSpinBox()
+        self.edge_param_spinbox.setRange(1, 30)
+        self.edge_param_spinbox.setValue(10)
+        param_layout.addWidget(self.edge_param_spinbox)
+        layout.addLayout(param_layout)
+
+        # 同步滑块和数值框
+        self.edge_param_slider.valueChanged.connect(
+            lambda v: self.edge_param_spinbox.setValue(v))
+        self.edge_param_spinbox.valueChanged.connect(
+            lambda v: self.edge_param_slider.setValue(v))
+
+        # 应用按钮
+        self.edge_apply_btn = QPushButton("应用边缘检测")
+        self.edge_apply_btn.clicked.connect(self.apply_edge_detection)
+        layout.addWidget(self.edge_apply_btn)
+
+        group.setLayout(layout)
+        return group
+
+    def create_step6_morphology_group(self) -> QGroupBox:
+        """创建第6步：形态学操作组"""
+        group = QGroupBox("6️⃣ 形态学操作")
         layout = QVBoxLayout()
         
         # 操作类型选择
@@ -570,3 +667,49 @@ class ControlPanel(QWidget):
 
         # 不再在标签中显示范围，为输入框腾出空间
         # 范围信息在控制台日志中可以看到
+
+    def apply_frequency_filter(self):
+        """应用频域滤波"""
+        filter_type = self.frequency_filter_combo.currentText()
+        cutoff_ratio = self.frequency_cutoff_spinbox.value() / 100.0  # 转换为0.01-0.5
+
+        # 映射UI选择到算法名称
+        algorithm_map = {
+            "理想低通滤波": "ideal_low_pass_filter",
+            "高斯低通滤波": "gaussian_low_pass_filter",
+            "理想高通滤波": "ideal_high_pass_filter",
+            "高斯高通滤波": "gaussian_high_pass_filter"
+        }
+
+        algorithm = algorithm_map.get(filter_type, "ideal_low_pass_filter")
+        parameters = {"cutoff_ratio": cutoff_ratio}
+
+        print(f"🔄 应用频域滤波: {filter_type}, 截止频率: {cutoff_ratio:.2f}")
+        self.algorithm_applied.emit(algorithm, parameters)
+
+    def apply_edge_detection(self):
+        """应用边缘检测"""
+        method = self.edge_method_combo.currentText()
+        param_value = self.edge_param_spinbox.value() / 10.0  # 转换为0.1-3.0
+
+        # 映射UI选择到算法名称
+        algorithm_map = {
+            "Sobel边缘检测": "sobel_edge_detection",
+            "Canny边缘检测": "canny_edge_detection",
+            "Laplacian边缘检测": "laplacian_edge_detection",
+            "边缘增强": "edge_enhancement",
+            "Roberts边缘检测": "roberts_edge_detection"
+        }
+
+        algorithm = algorithm_map.get(method, "sobel_edge_detection")
+
+        # 根据不同算法设置参数
+        if algorithm == "canny_edge_detection":
+            parameters = {"sigma": param_value}
+        elif algorithm == "edge_enhancement":
+            parameters = {"edge_strength": param_value}
+        else:
+            parameters = {}
+
+        print(f"🔄 应用边缘检测: {method}, 参数: {param_value:.1f}")
+        self.algorithm_applied.emit(algorithm, parameters)
