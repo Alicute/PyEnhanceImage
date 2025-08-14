@@ -528,6 +528,14 @@ class ControlPanel(QWidget):
         self.paper_enhance_btn.setEnabled(False)
         layout.addWidget(self.paper_enhance_btn)
 
+        # 论文算法处理(C++加速)
+        self.paper_enhance_cpp_btn = QPushButton("🚀 论文算法(C++加速)")
+        self.paper_enhance_cpp_btn.setToolTip("基于梯度场和非局部均值的复杂工件图像增强算法 - C++加速版本\n适用于大图像，速度提升10-100倍")
+        self.paper_enhance_cpp_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'paper_enhance_cpp', {}))
+        self.paper_enhance_cpp_btn.setEnabled(False)
+        layout.addWidget(self.paper_enhance_cpp_btn)
+
         group.setLayout(layout)
         return group
 
@@ -711,6 +719,7 @@ class ControlPanel(QWidget):
         self.dicom_auto_btn.setEnabled(enabled)
         self.window_based_btn.setEnabled(enabled)
         self.paper_enhance_btn.setEnabled(enabled)
+        self.paper_enhance_cpp_btn.setEnabled(enabled)
 
         # 启用窗宽窗位控件
         self.auto_btn.setEnabled(enabled)

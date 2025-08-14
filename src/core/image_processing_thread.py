@@ -393,6 +393,14 @@ class ImageProcessingThread(QThread):
                 return self.processor.paper_enhance(data, progress_wrapper)
 
             return paper_enhance_with_progress()
+        elif algorithm_name == 'paper_enhance_cpp':
+            # 为C++加速论文算法提供进度回调支持
+            def paper_enhance_cpp_with_progress():
+                def progress_wrapper(progress):
+                    progress_callback(task, progress)
+                return self.processor.paper_enhance_cpp(data, progress_wrapper)
+
+            return paper_enhance_cpp_with_progress()
         else:
             raise ValueError(f"未知算法: {algorithm_name}")
     

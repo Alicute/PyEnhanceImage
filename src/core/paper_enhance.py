@@ -305,9 +305,9 @@ def fast_nlm_on_gradient(Gx_prime, Gy_prime,
             rel_x_end = rel_x_start + (actual_x_end - actual_x_start)
 
             # 写入结果
-            Gx[actual_y_start:actual_y_end, actual_x_start:actual_x_end] = \
+            Gx_denoised[actual_y_start:actual_y_end, actual_x_start:actual_x_end] = \
                 denoised_gx[rel_y_start:rel_y_end, rel_x_start:rel_x_end]
-            Gy[actual_y_start:actual_y_end, actual_x_start:actual_x_end] = \
+            Gy_denoised[actual_y_start:actual_y_end, actual_x_start:actual_x_end] = \
                 denoised_gy[rel_y_start:rel_y_end, rel_x_start:rel_x_end]
 
             processed_blocks += 1
@@ -328,6 +328,12 @@ def fast_nlm_on_gradient(Gx_prime, Gy_prime,
     total_time = time.time() - start_time
     print(f"      ✅ [fast_nlm] 分块处理完成，耗时: {total_time:.2f}s，处理了 {total_blocks} 个块")
     print(f"         平均每块耗时: {total_time/total_blocks:.3f}s")
+
+    # 反归一化回原始范围
+    Gx = Gx_denoised * gx_range + gx_min if gx_range > 0 else Gx_denoised
+    Gy = Gy_denoised * gy_range + gy_min if gy_range > 0 else Gy_denoised
+
+    print(f"      📊 [fast_nlm] 反归一化完成，最终范围: Gx[{Gx.min():.3f}, {Gx.max():.3f}], Gy[{Gy.min():.3f}, {Gy.max():.3f}]")
 
     return Gx, Gy
 
@@ -440,9 +446,9 @@ def enhance_xray_poisson_nlm_strict(R16,
         patch_size = max(3, patch_radius * 2 + 1)  # 最小3，1 -> 3, 2 -> 5
         patch_distance = max(5, search_radius * 2 + 3)  # 最小5，1 -> 5, 2 -> 7
 
-        # 关键修复：大幅降低h值，避免过度平滑
-        # 对于梯度场，h值需要非常小
-        h = 0.001  # 从0.1降到0.001，避免过度去噪
+        # 关键修复：进一步优化h值，避免马赛克效应
+        # 对于梯度场，h值需要更精细调整
+        h = 0.0001  # 进一步降低到0.0001，减少马赛克效应
 
         print(f"      🔧 参数映射: patch_size={patch_size}, patch_distance={patch_distance}, h={h}")
 
