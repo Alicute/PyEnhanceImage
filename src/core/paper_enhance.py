@@ -5,6 +5,13 @@ from functools import lru_cache
 from scipy.stats import poisson
 from skimage.restoration import denoise_nl_means
 
+# 尝试导入C++扩展
+try:
+    from poisson_nlm_cpp import poisson_nlm_on_gradient_exact_cpp as nlm_cpp
+except Exception as e:
+    nlm_cpp = None
+    _cpp_import_error = e
+
 # -------- 规范化到 [0,1]（浮点），并返回可逆上下文 --------
 def normalize_to_unit(img, mode="percentile", p_lo=0.5, p_hi=99.5,
                       wl=None, ww=None):
@@ -496,5 +503,82 @@ def enhance_xray_poisson_nlm_strict(R16,
     print(f"   🎉 [enhance_xray_poisson_nlm_strict] 总耗时: {total_time:.2f}s")
 
     return I16, (Gx_p, Gy_p), (Gx, Gy), nctx
+
+
+def _iter_tiles(H, W, tile_h, tile_w, overlap):
+    """生成每个 tile 的输入/核心区域切片"""
+    assert tile_h > 2*overlap and tile_w > 2*overlap, \
+        "tile 尺寸必须大于 2*overlap 才能得到正的核心区域"
+    stride_h = tile_h - 2*overlap
+    stride_w = tile_w - 2*overlap
+    y = 0
+    while y < H:
+        core_y0 = y
+        core_y1 = min(y + tile_h, H)
+        in_y0 = max(0, core_y0 - overlap)
+        in_y1 = min(H, core_y1 + overlap)
+        x = 0
+        while x < W:
+            core_x0 = x
+            core_x1 = min(x + tile_w, W)
+            in_x0 = max(0, core_x0 - overlap)
+            in_x1 = min(W, core_x1 + overlap)
+
+            core_rel_y0 = core_y0 - in_y0
+            core_rel_y1 = core_rel_y0 + (core_y1 - core_y0)
+            core_rel_x0 = core_x0 - in_x0
+            core_rel_x1 = core_rel_x0 + (core_x1 - core_x0)
+
+            yield (slice(in_y0, in_y1), slice(in_x0, in_x1)), \
+                  (slice(core_y0, core_y1), slice(core_x0, core_x1)), \
+                  (slice(core_rel_y0, core_rel_y1), slice(core_rel_x0, core_rel_x1))
+            x += stride_w
+        y += stride_h
+
+
+def enhance_xray_poisson_nlm_strict_tiled_cpp(
+    R16,
+    norm_mode="percentile", p_lo=0.5, p_hi=99.5, wl=None, ww=None,
+    tile=(1024, 1024), overlap=32,
+    epsilon_8bit=2.3, mu=10.0, ksize_var=5,
+    search_radius=2, patch_radius=1, rho=1.5,
+    count_target_mean=30.0, lam_quant=0.02, topk=25,
+    gamma=0.2, delta=0.8, iters=6, dt=0.15,
+    out_dtype=np.uint16,
+):
+    """严格的论文算法实现（C++加速，分块处理）"""
+    if nlm_cpp is None:
+        raise RuntimeError(
+            f"[Poisson NLM C++] 扩展未就绪: {repr(_cpp_import_error)}\n"
+            "请先编译 poisson_nlm_cpp（pybind11 + OpenMP），或检查 PYTHONPATH。"
+        )
+
+    H, W = int(R16.shape[0]), int(R16.shape[1])
+    tile_h, tile_w = int(tile[0]), int(tile[1])
+
+    R_unit, nctx = normalize_to_unit(R16, mode=norm_mode, p_lo=p_lo, p_hi=p_hi, wl=wl, ww=ww)
+    epsilon_unit = float(epsilon_8bit) / (255.0 * 255.0)
+    I_unit_out = np.zeros_like(R_unit, dtype=np.float32)
+
+    for (in_y, in_x), (core_y, core_x), (core_rel_y, core_rel_x) in _iter_tiles(H, W, tile_h, tile_w, overlap):
+        R_sub = R_unit[in_y, in_x].copy()
+        Gx_p, Gy_p = adaptive_gradient_enhance_unit(R_sub,
+                                                    epsilon_unit=epsilon_unit,
+                                                    mu=mu, ksize_var=ksize_var)
+        Gx, Gy, _ = nlm_cpp(
+            Gx_p.astype(np.float32), Gy_p.astype(np.float32),
+            int(search_radius), int(patch_radius),
+            float(rho), float(count_target_mean),
+            float(lam_quant), int(topk if topk is not None else 0)
+        )
+        I_sub = variational_reconstruct_unit(
+            R_sub.astype(np.float32), Gx, Gy,
+            gamma=float(gamma), delta=float(delta),
+            iters=int(iters), dt=float(dt)
+        ).astype(np.float32)
+        I_unit_out[core_y, core_x] = I_sub[core_rel_y, core_rel_x]
+
+    I16 = denormalize_from_unit(I_unit_out, nctx, out_dtype=out_dtype, mode="window")
+    return I16
 
 
