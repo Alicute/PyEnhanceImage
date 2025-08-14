@@ -94,6 +94,12 @@ class ImageProcessingThread(QThread):
             'median_filter': self._filter_progress,
             'unsharp_mask': self._filter_progress,
             'morphological_operation': self._morphology_progress,
+            'dicom_basic_enhance': self._dicom_progress,
+            'dicom_advanced_enhance': self._dicom_progress,
+            'dicom_super_enhance': self._dicom_progress,
+            'dicom_auto_enhance': self._dicom_progress,
+            'window_based_enhance': self._dicom_progress,
+            'paper_enhance': self._paper_progress,
         }
     
     def add_task(self, algorithm_name: str, parameters: Dict[str, Any], 
@@ -351,6 +357,42 @@ class ImageProcessingThread(QThread):
                     data, parameters['operation'], parameters['disk_size']),
                 task, progress_callback
             )
+        elif algorithm_name == 'dicom_basic_enhance':
+            return self._execute_with_progress(
+                lambda: self.processor.dicom_basic_enhance(data),
+                task, progress_callback
+            )
+        elif algorithm_name == 'dicom_advanced_enhance':
+            return self._execute_with_progress(
+                lambda: self.processor.dicom_advanced_enhance(data),
+                task, progress_callback
+            )
+        elif algorithm_name == 'dicom_super_enhance':
+            return self._execute_with_progress(
+                lambda: self.processor.dicom_super_enhance(data),
+                task, progress_callback
+            )
+        elif algorithm_name == 'dicom_auto_enhance':
+            return self._execute_with_progress(
+                lambda: self.processor.dicom_auto_enhance(data),
+                task, progress_callback
+            )
+        elif algorithm_name == 'window_based_enhance':
+            # 从参数中获取窗宽窗位设置
+            window_width = parameters.get('window_width', 1500)
+            window_level = parameters.get('window_level', 2500)
+            return self._execute_with_progress(
+                lambda: self.processor.window_based_enhance(data, window_width, window_level),
+                task, progress_callback
+            )
+        elif algorithm_name == 'paper_enhance':
+            # 为论文算法提供进度回调支持
+            def paper_enhance_with_progress():
+                def progress_wrapper(progress):
+                    progress_callback(task, progress)
+                return self.processor.paper_enhance(data, progress_wrapper)
+
+            return paper_enhance_with_progress()
         else:
             raise ValueError(f"未知算法: {algorithm_name}")
     
@@ -400,3 +442,23 @@ class ImageProcessingThread(QThread):
     def _morphology_progress(self, task: ProcessingTask, progress: float):
         """形态学操作进度回调"""
         self._default_progress(task, progress)
+
+    def _dicom_progress(self, task: ProcessingTask, progress: float):
+        """DICOM增强进度回调"""
+        self._default_progress(task, progress)
+
+    def _paper_progress(self, task: ProcessingTask, progress: float):
+        """论文算法进度回调"""
+        self._default_progress(task, progress)
+
+        # 提供更详细的进度信息
+        if progress < 0.1:
+            task.status_message = "初始化论文算法..."
+        elif progress < 0.3:
+            task.status_message = "Step1: 梯度场自适应增强..."
+        elif progress < 0.6:
+            task.status_message = "Step2: 泊松非局部均值滤波..."
+        elif progress < 0.9:
+            task.status_message = "Step3: 变分重建..."
+        else:
+            task.status_message = "完成处理，转换数据格式..."

@@ -8,6 +8,9 @@ from typing import Dict, Any, Tuple, Optional
 # 导入新的处理器模块
 from .frequency_processor import FrequencyProcessor
 from .edge_processor import EdgeProcessor
+from .dicom_enhancer import DicomEnhancer
+from .window_based_enhancer import WindowBasedEnhancer
+from .paper_enhance import enhance_xray_poisson_nlm_strict
 
 class ImageProcessor:
     """图像处理算法集合"""
@@ -283,3 +286,104 @@ class ImageProcessor:
     def roberts_edge_detection(data: np.ndarray) -> np.ndarray:
         """Roberts边缘检测"""
         return EdgeProcessor.roberts_edge(data)
+
+    # ==================== DICOM增强方法 ====================
+
+    @staticmethod
+    def dicom_basic_enhance(data: np.ndarray) -> np.ndarray:
+        """DICOM普通增强"""
+        return DicomEnhancer.basic_enhance(data)
+
+    @staticmethod
+    def dicom_advanced_enhance(data: np.ndarray) -> np.ndarray:
+        """DICOM高级增强"""
+        return DicomEnhancer.advanced_enhance(data)
+
+    @staticmethod
+    def dicom_super_enhance(data: np.ndarray) -> np.ndarray:
+        """DICOM超级增强"""
+        return DicomEnhancer.super_enhance(data)
+
+    @staticmethod
+    def dicom_auto_enhance(data: np.ndarray) -> np.ndarray:
+        """DICOM一键处理"""
+        return DicomEnhancer.auto_enhance(data)
+
+    @staticmethod
+    def window_based_enhance(data: np.ndarray, window_width: float, window_level: float) -> np.ndarray:
+        """基于窗宽窗位的缺陷检测增强"""
+        return WindowBasedEnhancer.window_based_enhance(data, window_width, window_level)
+
+    @staticmethod
+    def paper_enhance(data: np.ndarray, progress_callback=None) -> np.ndarray:
+        """论文算法：基于梯度场和非局部均值的复杂工件图像增强算法"""
+        print(f"\n📄 论文算法处理:")
+        print(f"   输入数据范围: {data.min()} - {data.max()}")
+        print(f"   输入数据类型: {data.dtype}")
+        print(f"   图像大小: {data.shape}")
+
+        if progress_callback:
+            progress_callback(0.1)
+
+        try:
+            print(f"   🔄 开始执行论文算法（预计需要10-30秒）...")
+
+            if progress_callback:
+                progress_callback(0.2)
+
+            print(f"   📊 Step1: 开始梯度场自适应增强...")
+
+            # 为了调试，我们先尝试更快的参数
+            print(f"   🔧 使用加速参数进行测试...")
+
+            # 调用论文算法（使用新的优化接口）
+            def progress_wrapper(progress):
+                if progress_callback:
+                    progress_callback(progress)
+
+            I_enh, (Gx_p, Gy_p), (Gx, Gy), nctx = enhance_xray_poisson_nlm_strict(
+                data,
+                # 归一化参数
+                norm_mode="percentile", p_lo=0.5, p_hi=99.5,
+                # Step1: 梯度场增强参数
+                epsilon_8bit=2.3, mu=10.0, ksize_var=5,
+                # Step2: NLM参数（快速模式会自动映射）
+                rho=1.5, search_radius=3, patch_radius=2, topk=15,
+                count_target_mean=18.0,  # 0.3 * 60.0，对应原来的count_scale=0.3
+                lam_quant=0.02,
+                # Step3: 变分重建参数
+                gamma=0.2, delta=0.8, iters=5, dt=0.15,
+                # 输出参数
+                out_dtype=np.uint16,
+                # 进度回调
+                progress_callback=progress_wrapper,
+                # 快速模式（自动判断）
+                use_fast_nlm=None  # None=自动判断，大图像会自动使用快速模式
+            )
+
+            print(f"   📊 论文算法核心处理完成，开始后处理...")
+
+            if progress_callback:
+                progress_callback(0.9)
+
+            print(f"   输出数据范围: {I_enh.min()} - {I_enh.max()}")
+            print(f"   输出数据类型: {I_enh.dtype}")
+            print(f"   梯度场范围: Gx_p[{Gx_p.min():.2f}, {Gx_p.max():.2f}], Gy_p[{Gy_p.min():.2f}, {Gy_p.max():.2f}]")
+            print(f"   处理后梯度: Gx[{Gx.min():.2f}, {Gx.max():.2f}], Gy[{Gy.min():.2f}, {Gy.max():.2f}]")
+            print(f"   归一化上下文: vmin={nctx['vmin']:.1f}, vmax={nctx['vmax']:.1f}")
+
+            # 新函数直接返回16位结果，无需转换
+            result = I_enh
+
+            if progress_callback:
+                progress_callback(1.0)
+
+            print(f"   ✅ 论文算法处理完成")
+            return result
+
+        except Exception as e:
+            print(f"   ❌ 论文算法处理失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # 返回原始数据
+            return data

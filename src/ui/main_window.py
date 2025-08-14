@@ -211,6 +211,12 @@ class MainWindow(QMainWindow):
                 self.update_display()
                 self.control_panel.set_controls_enabled(True)
 
+                # 更新控制面板的图像数据
+                self.control_panel.update_image_data(
+                    self.image_manager.current_image.data,
+                    self.image_manager.original_image.data
+                )
+
                 # 自动优化窗宽窗位（内部会更新智能滑块范围）
                 self.auto_optimize_window()
                 self.status_bar.showMessage(f"已加载: {os.path.basename(file_path)}")
@@ -223,19 +229,25 @@ class MainWindow(QMainWindow):
         self.image_manager.reset_to_original()
         self.update_display()
         self.control_panel.update_history([])
-        
+
         # 重置窗宽窗位UI控件为原始图像的值
         if self.image_manager.original_image:
             original_ww = self.image_manager.original_image.window_width
             original_wl = self.image_manager.original_image.window_level
             self.control_panel.set_window_settings(original_ww, original_wl)
-            
+
+            # 更新控制面板的图像数据
+            self.control_panel.update_image_data(
+                self.image_manager.current_image.data,
+                self.image_manager.original_image.data
+            )
+
             # 更新图像信息显示
             data_min = int(self.image_manager.original_image.data.min())
             data_max = int(self.image_manager.original_image.data.max())
             data_mean = float(self.image_manager.original_image.data.mean())
             self.control_panel.update_image_info(data_min, data_max, data_mean)
-        
+
         self.status_bar.showMessage("已重置为原始图像")
         
     def apply_algorithm(self, algorithm_name: str, parameters: dict):
@@ -249,6 +261,13 @@ class MainWindow(QMainWindow):
 
         # 获取当前图像数据
         current_data = self.image_manager.current_image.data
+
+        # 如果是基于窗宽窗位的增强，添加窗宽窗位参数
+        if algorithm_name == 'window_based_enhance':
+            current_ww = self.image_manager.current_image.window_width
+            current_wl = self.image_manager.current_image.window_level
+            parameters['window_width'] = current_ww
+            parameters['window_level'] = current_wl
 
         # 生成任务描述
         description = self._generate_task_description(algorithm_name, parameters)
@@ -292,6 +311,10 @@ class MainWindow(QMainWindow):
                 'closing': '闭运算'
             }[parameters['operation']]
             return f"形态学{operation_name} (size={parameters['disk_size']})"
+        elif algorithm_name == 'window_based_enhance':
+            return "窗位增强"
+        elif algorithm_name == 'paper_enhance':
+            return "论文算法处理"
         else:
             return algorithm_name
             
@@ -360,7 +383,7 @@ class MainWindow(QMainWindow):
                 gc.collect()
     
     def auto_optimize_window(self):
-        """自动优化窗宽窗位 - 基于峰值检测的智能算法"""
+        """智能自动优化窗宽窗位 - 基于专业建议的改进算法"""
         if self.image_manager.current_image is None:
             return
 
@@ -371,14 +394,14 @@ class MainWindow(QMainWindow):
         data_mean = float(data.mean())
         total_pixels = data.size
 
-        print(f"\n� 自动优化分析:")
+        print(f"\n🎯 自动优化分析:")
         print(f"   数据范围: {data_min} - {data_max}")
         print(f"   数据均值: {data_mean:.1f}")
         print(f"   图像大小: {data.shape}")
 
         # 计算直方图
         hist, bins = np.histogram(data.flatten(), bins=65536, range=(data_min, data_max))
-        bin_centers = bins[:-1]  # 使用bin中心值
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])  # 修正：使用真正的bin中心
         cumulative_pixels = np.cumsum(hist)
 
         # 检测过曝峰值
@@ -467,7 +490,7 @@ class MainWindow(QMainWindow):
         self.update_smart_slider_ranges()
 
         self.status_bar.showMessage(f"自动优化: 窗宽={window_width:.0f}, 窗位={window_level:.0f}")
-        
+
     def on_image_wheel_event(self, view, event):
         """图像视图滚轮事件"""
         # 直接调用ImageView的wheelEvent方法
@@ -529,23 +552,108 @@ class MainWindow(QMainWindow):
         """保存当前结果"""
         if self.image_manager.current_image is None:
             return
-            
+
+        # 生成默认文件名：原始图像名 + 增强步骤名称
+        original_name = self.image_manager.original_image.name if self.image_manager.original_image else "image"
+        # 移除原始文件的扩展名
+        base_name = os.path.splitext(original_name)[0]
+
+        # 获取最后一个处理步骤的描述
+        if self.image_manager.processing_history:
+            last_step = self.image_manager.processing_history[-1]['description']
+            # 清理描述中的特殊字符，用于文件名
+            step_name = "".join(c for c in last_step if c.isalnum() or c in (' ', '-', '_')).strip()
+            step_name = step_name.replace(' ', '_')
+            default_filename = f"{base_name}_{step_name}.dcm"
+        else:
+            default_filename = f"{base_name}_processed.dcm"
+
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "保存DICOM文件", "", "DICOM文件 (*.dcm)"
+            self, "保存DICOM文件", default_filename, "DICOM文件 (*.dcm)"
         )
-        
+
         if file_path:
             try:
                 # 确保文件扩展名
                 if not file_path.endswith('.dcm'):
                     file_path += '.dcm'
-                    
-                # 这里需要实现DICOM保存功能
-                # 由于pydicom的保存比较复杂，这里简化处理
+
+                # 实现DICOM保存功能
+                self._save_dicom_file(file_path)
                 self.status_bar.showMessage(f"已保存: {os.path.basename(file_path)}")
-                
+
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"保存失败: {str(e)}")
+
+    def _save_dicom_file(self, file_path: str):
+        """保存DICOM文件的具体实现"""
+        import pydicom
+        from pydicom.dataset import Dataset, FileDataset
+        from pydicom.uid import generate_uid
+        import tempfile
+
+        # 获取当前图像数据
+        current_image = self.image_manager.current_image
+
+        # 如果有原始DICOM文件，基于它创建新的DICOM
+        if hasattr(current_image, 'metadata') and 'dicom_dataset' in current_image.metadata:
+            # 复制原始DICOM数据集
+            original_ds = current_image.metadata['dicom_dataset']
+            ds = pydicom.dcmread(tempfile.NamedTemporaryFile().name, force=True) if hasattr(original_ds, 'copy') else Dataset()
+
+            # 复制重要的元数据
+            for tag in ['PatientName', 'PatientID', 'StudyDate', 'StudyTime',
+                       'Modality', 'StudyInstanceUID', 'SeriesInstanceUID',
+                       'ImageOrientationPatient', 'ImagePositionPatient',
+                       'PixelSpacing', 'SliceThickness']:
+                if hasattr(original_ds, tag):
+                    setattr(ds, tag, getattr(original_ds, tag))
+        else:
+            # 创建新的DICOM数据集
+            ds = Dataset()
+            ds.PatientName = "Anonymous"
+            ds.PatientID = "000000"
+            ds.Modality = "OT"  # Other
+            ds.StudyInstanceUID = generate_uid()
+            ds.SeriesInstanceUID = generate_uid()
+
+        # 设置图像相关的必要字段
+        ds.SOPInstanceUID = generate_uid()
+        ds.SOPClassUID = "1.2.840.10008.5.1.4.1.1.7"  # Secondary Capture Image Storage
+
+        # 设置图像数据
+        pixel_data = current_image.data.astype(np.uint16)
+        ds.PixelData = pixel_data.tobytes()
+
+        # 设置图像属性
+        ds.Rows, ds.Columns = pixel_data.shape
+        ds.BitsAllocated = 16
+        ds.BitsStored = 16
+        ds.HighBit = 15
+        ds.PixelRepresentation = 0  # unsigned
+        ds.SamplesPerPixel = 1
+        ds.PhotometricInterpretation = "MONOCHROME2"
+
+        # 设置窗宽窗位
+        ds.WindowWidth = current_image.window_width
+        ds.WindowCenter = current_image.window_level
+
+        # 添加处理历史到DICOM注释中
+        if self.image_manager.processing_history:
+            history_text = "Processing History: " + "; ".join([
+                step['description'] for step in self.image_manager.processing_history
+            ])
+            ds.ImageComments = history_text[:1024]  # DICOM字段长度限制
+
+        # 创建文件数据集并保存
+        file_meta = Dataset()
+        file_meta.MediaStorageSOPClassUID = ds.SOPClassUID
+        file_meta.MediaStorageSOPInstanceUID = ds.SOPInstanceUID
+        file_meta.ImplementationClassUID = generate_uid()
+        file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+
+        file_ds = FileDataset(file_path, ds, file_meta=file_meta, preamble=b"\0" * 128)
+        file_ds.save_as(file_path, write_like_original=False)
                 
     def save_preview_image(self):
         """保存预览图像"""
@@ -607,6 +715,17 @@ class MainWindow(QMainWindow):
 
                 # 更新显示
                 self.update_display()
+
+                # 更新控制面板的图像数据
+                self.control_panel.update_image_data(
+                    self.image_manager.current_image.data,
+                    self.image_manager.original_image.data
+                )
+
+                # 如果是窗位增强，自动优化窗宽窗位
+                if 'window_based_enhance' in description:
+                    print("🎯 检测到窗位增强，自动优化窗宽窗位...")
+                    self.auto_optimize_window()
 
                 # 更新历史记录
                 self.control_panel.update_history(self.image_manager.processing_history)

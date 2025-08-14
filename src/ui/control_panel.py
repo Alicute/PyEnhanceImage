@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                            QDoubleSpinBox, QCheckBox, QScrollArea, QMenu)
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from typing import Dict, Any, Tuple
+from .histogram_window import HistogramWindow
 
 class ControlPanel(QWidget):
     """控制面板"""
@@ -26,6 +27,9 @@ class ControlPanel(QWidget):
     def __init__(self):
         super().__init__()
         self.algorithm_widgets = {}
+        self.histogram_window = None  # 直方图窗口
+        self.current_image = None     # 当前图像数据
+        self.original_image = None    # 原始图像数据
         self.init_ui()
         
     def init_ui(self):
@@ -76,7 +80,13 @@ class ControlPanel(QWidget):
         self.reset_btn.clicked.connect(self.reset_clicked.emit)
         self.reset_btn.setEnabled(False)
         layout.addWidget(self.reset_btn)
-        
+
+        # 直方图按钮
+        self.histogram_btn = QPushButton("📊 显示直方图")
+        self.histogram_btn.clicked.connect(self.show_histogram)
+        self.histogram_btn.setEnabled(False)
+        layout.addWidget(self.histogram_btn)
+
         group.setLayout(layout)
         return group
         
@@ -154,6 +164,11 @@ class ControlPanel(QWidget):
         # 数据信息显示
         self.range_label = QLabel("数据范围: 0 - 65535")
         layout.addWidget(self.range_label)
+
+        # 窗宽窗位灰度范围显示
+        self.ww_wl_range_label = QLabel("显示范围: 0 - 65535")
+        self.ww_wl_range_label.setStyleSheet("color: #666; font-size: 11px;")
+        layout.addWidget(self.ww_wl_range_label)
         
         group.setLayout(layout)
         return group
@@ -192,6 +207,10 @@ class ControlPanel(QWidget):
         step6_group = self.create_step6_morphology_group()
         scroll_layout.addWidget(step6_group)
 
+        # 7️⃣ DICOM增强
+        step7_group = self.create_step7_dicom_enhance_group()
+        scroll_layout.addWidget(step7_group)
+
         scroll_widget.setLayout(scroll_layout)
         scroll.setWidget(scroll_widget)
         scroll.setWidgetResizable(True)
@@ -202,7 +221,7 @@ class ControlPanel(QWidget):
         
     def create_step1_gray_transform_group(self) -> QGroupBox:
         """创建第1步：灰度变换组"""
-        group = QGroupBox("1️⃣ 灰度变换")
+        group = QGroupBox("灰度变换")
         layout = QVBoxLayout()
         
         # Gamma校正
@@ -227,7 +246,7 @@ class ControlPanel(QWidget):
         
     def create_step2_histogram_group(self) -> QGroupBox:
         """创建第2步：直方图调整组"""
-        group = QGroupBox("2️⃣ 直方图调整")
+        group = QGroupBox("直方图调整")
         layout = QVBoxLayout()
         
         # 全局均衡化
@@ -259,7 +278,7 @@ class ControlPanel(QWidget):
         
     def create_step3_spatial_filter_group(self) -> QGroupBox:
         """创建第3步：空间域滤波组"""
-        group = QGroupBox("3️⃣ 空间域滤波")
+        group = QGroupBox("空间域滤波")
         layout = QVBoxLayout()
         
         # 高斯滤波
@@ -334,7 +353,7 @@ class ControlPanel(QWidget):
 
     def create_step4_frequency_group(self) -> QGroupBox:
         """创建第4步：频域增强组"""
-        group = QGroupBox("4️⃣ 频域增强")
+        group = QGroupBox("频域增强")
         layout = QVBoxLayout()
 
         # 滤波器类型选择
@@ -379,7 +398,7 @@ class ControlPanel(QWidget):
 
     def create_step5_edge_detection_group(self) -> QGroupBox:
         """创建第5步：边缘检测组"""
-        group = QGroupBox("5️⃣ 边缘检测")
+        group = QGroupBox("边缘检测")
         layout = QVBoxLayout()
 
         # 检测算子选择
@@ -423,7 +442,7 @@ class ControlPanel(QWidget):
 
     def create_step6_morphology_group(self) -> QGroupBox:
         """创建第6步：形态学操作组"""
-        group = QGroupBox("6️⃣ 形态学操作")
+        group = QGroupBox("形态学操作")
         layout = QVBoxLayout()
         
         # 操作类型选择
@@ -455,7 +474,63 @@ class ControlPanel(QWidget):
         
         group.setLayout(layout)
         return group
-        
+
+    def create_step7_dicom_enhance_group(self) -> QGroupBox:
+        """创建第7步：DICOM增强组"""
+        group = QGroupBox("🏥 DICOM增强")
+        layout = QVBoxLayout()
+
+        # 普通增强
+        self.dicom_basic_btn = QPushButton("🔹 普通增强")
+        self.dicom_basic_btn.setToolTip("基础CLAHE + 简单高频增强")
+        self.dicom_basic_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'dicom_basic_enhance', {}))
+        self.dicom_basic_btn.setEnabled(False)
+        layout.addWidget(self.dicom_basic_btn)
+
+        # 高级增强
+        self.dicom_advanced_btn = QPushButton("🔸 高级增强")
+        self.dicom_advanced_btn.setToolTip("多步骤自适应增强算法")
+        self.dicom_advanced_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'dicom_advanced_enhance', {}))
+        self.dicom_advanced_btn.setEnabled(False)
+        layout.addWidget(self.dicom_advanced_btn)
+
+        # 超级增强
+        self.dicom_super_btn = QPushButton("🔶 超级增强")
+        self.dicom_super_btn.setToolTip("多层次复杂处理算法")
+        self.dicom_super_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'dicom_super_enhance', {}))
+        self.dicom_super_btn.setEnabled(False)
+        layout.addWidget(self.dicom_super_btn)
+
+        # 一键处理
+        self.dicom_auto_btn = QPushButton("⚡ 一键处理")
+        self.dicom_auto_btn.setToolTip("自动分析图像特征并选择最佳算法")
+        self.dicom_auto_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'dicom_auto_enhance', {}))
+        self.dicom_auto_btn.setEnabled(False)
+        layout.addWidget(self.dicom_auto_btn)
+
+        # 基于窗宽窗位的增强
+        self.window_based_btn = QPushButton("🎯 窗位增强")
+        self.window_based_btn.setToolTip("基于当前窗宽窗位的缺陷检测增强")
+        self.window_based_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'window_based_enhance', {}))
+        self.window_based_btn.setEnabled(False)
+        layout.addWidget(self.window_based_btn)
+
+        # 论文算法处理
+        self.paper_enhance_btn = QPushButton("📄 论文算法处理")
+        self.paper_enhance_btn.setToolTip("基于梯度场和非局部均值的复杂工件图像增强算法")
+        self.paper_enhance_btn.clicked.connect(lambda: self.apply_algorithm.emit(
+            'paper_enhance', {}))
+        self.paper_enhance_btn.setEnabled(False)
+        layout.addWidget(self.paper_enhance_btn)
+
+        group.setLayout(layout)
+        return group
+
     def create_history_group(self) -> QGroupBox:
         """创建历史记录组"""
         group = QGroupBox("处理历史")
@@ -509,6 +584,9 @@ class ControlPanel(QWidget):
         self.ww_spinbox.setValue(value)
         self.ww_spinbox.blockSignals(False)
 
+        # 更新显示范围
+        self.update_ww_wl_range_display()
+
         self.window_width_changed.emit(float(value))
 
     def on_window_level_changed(self, value):
@@ -517,6 +595,9 @@ class ControlPanel(QWidget):
         self.wl_spinbox.blockSignals(True)
         self.wl_spinbox.setValue(value)
         self.wl_spinbox.blockSignals(False)
+
+        # 更新显示范围
+        self.update_ww_wl_range_display()
 
         self.window_level_changed.emit(float(value))
 
@@ -527,6 +608,9 @@ class ControlPanel(QWidget):
         self.ww_slider.setValue(value)
         self.ww_slider.blockSignals(False)
 
+        # 更新显示范围
+        self.update_ww_wl_range_display()
+
         self.window_width_changed.emit(float(value))
 
     def on_wl_spinbox_changed(self, value):
@@ -536,27 +620,12 @@ class ControlPanel(QWidget):
         self.wl_slider.setValue(value)
         self.wl_slider.blockSignals(False)
 
+        # 更新显示范围
+        self.update_ww_wl_range_display()
+
         self.window_level_changed.emit(float(value))
         
-    def set_controls_enabled(self, enabled: bool):
-        """设置控件启用状态"""
-        self.reset_btn.setEnabled(enabled)
-        self.gamma_btn.setEnabled(enabled)
-        self.hist_global_btn.setEnabled(enabled)
-        self.clahe_btn.setEnabled(enabled)
-        self.gaussian_btn.setEnabled(enabled)
-        self.median_btn.setEnabled(enabled)
-        self.usm_btn.setEnabled(enabled)
-        self.morph_btn.setEnabled(enabled)
-        self.save_current_btn.setEnabled(enabled)
-        self.save_preview_btn.setEnabled(enabled)
-        
-        # 启用窗宽窗位控件
-        self.auto_btn.setEnabled(enabled)
-        self.defect_btn.setEnabled(enabled)
-        self.overview_btn.setEnabled(enabled)
-        self.ww_slider.setEnabled(enabled)
-        self.wl_slider.setEnabled(enabled)
+
         
     def update_history(self, history: list):
         """更新历史记录显示"""
@@ -600,6 +669,27 @@ class ControlPanel(QWidget):
     def update_image_info(self, data_min: int, data_max: int, data_mean: float):
         """更新图像信息显示"""
         self.range_label.setText(f"数据范围: {data_min} - {data_max} (均值: {data_mean:.1f})")
+
+        # 计算当前窗宽窗位设置的灰度范围
+        current_ww = self.ww_slider.value()
+        current_wl = self.wl_slider.value()
+
+        # 计算显示范围：[窗位 - 窗宽/2, 窗位 + 窗宽/2]
+        display_min = max(0, current_wl - current_ww // 2)
+        display_max = min(65535, current_wl + current_ww // 2)
+
+        self.ww_wl_range_label.setText(f"显示范围: {display_min} - {display_max} (窗宽: {current_ww}, 窗位: {current_wl})")
+
+    def update_ww_wl_range_display(self):
+        """更新窗宽窗位显示范围"""
+        current_ww = self.ww_slider.value()
+        current_wl = self.wl_slider.value()
+
+        # 计算显示范围：[窗位 - 窗宽/2, 窗位 + 窗宽/2]
+        display_min = max(0, current_wl - current_ww // 2)
+        display_max = min(65535, current_wl + current_ww // 2)
+
+        self.ww_wl_range_label.setText(f"显示范围: {display_min} - {display_max} (窗宽: {current_ww}, 窗位: {current_wl})")
     
     def set_controls_enabled(self, enabled: bool):
         """设置控件启用状态"""
@@ -613,7 +703,15 @@ class ControlPanel(QWidget):
         self.morph_btn.setEnabled(enabled)
         self.save_current_btn.setEnabled(enabled)
         self.save_preview_btn.setEnabled(enabled)
-        
+
+        # 启用DICOM增强按钮
+        self.dicom_basic_btn.setEnabled(enabled)
+        self.dicom_advanced_btn.setEnabled(enabled)
+        self.dicom_super_btn.setEnabled(enabled)
+        self.dicom_auto_btn.setEnabled(enabled)
+        self.window_based_btn.setEnabled(enabled)
+        self.paper_enhance_btn.setEnabled(enabled)
+
         # 启用窗宽窗位控件
         self.auto_btn.setEnabled(enabled)
         self.defect_btn.setEnabled(enabled)
@@ -685,7 +783,7 @@ class ControlPanel(QWidget):
         parameters = {"cutoff_ratio": cutoff_ratio}
 
         print(f"🔄 应用频域滤波: {filter_type}, 截止频率: {cutoff_ratio:.2f}")
-        self.algorithm_applied.emit(algorithm, parameters)
+        self.apply_algorithm.emit(algorithm, parameters)
 
     def apply_edge_detection(self):
         """应用边缘检测"""
@@ -712,4 +810,42 @@ class ControlPanel(QWidget):
             parameters = {}
 
         print(f"🔄 应用边缘检测: {method}, 参数: {param_value:.1f}")
-        self.algorithm_applied.emit(algorithm, parameters)
+        self.apply_algorithm.emit(algorithm, parameters)
+
+    def show_histogram(self):
+        """显示直方图窗口"""
+        if self.current_image is None:
+            print("⚠️ 没有图像数据，无法显示直方图")
+            return
+
+        # 创建或显示直方图窗口
+        if self.histogram_window is None:
+            self.histogram_window = HistogramWindow(self)
+
+        # 设置图像数据
+        self.histogram_window.set_images(self.current_image, self.original_image)
+
+        # 显示窗口
+        self.histogram_window.show()
+        self.histogram_window.raise_()
+        self.histogram_window.activateWindow()
+
+        print("📊 直方图窗口已打开")
+
+    def update_image_data(self, current_image, original_image=None):
+        """更新图像数据"""
+        self.current_image = current_image
+        if original_image is not None:
+            self.original_image = original_image
+
+        # 启用相关按钮
+        if current_image is not None:
+            self.reset_btn.setEnabled(True)
+            self.histogram_btn.setEnabled(True)
+        else:
+            self.reset_btn.setEnabled(False)
+            self.histogram_btn.setEnabled(False)
+
+        # 如果直方图窗口已打开，更新数据
+        if self.histogram_window is not None and self.histogram_window.isVisible():
+            self.histogram_window.set_images(self.current_image, self.original_image)

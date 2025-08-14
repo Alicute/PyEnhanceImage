@@ -263,21 +263,8 @@ class ImageManager:
         current_ww = image_data.window_width
         current_wl = image_data.window_level
 
-        # 方法1：基于直方图找有效数据范围
-        hist, bins = np.histogram(data.flatten(), bins=1000, range=(data.min(), data.max()))
-        total_pixels = data.size
-        noise_threshold = total_pixels * 0.001  # 0.1%以下认为是噪声
-
-        # 找到有效的bins（排除噪声）
-        effective_bins = np.where(hist > noise_threshold)[0]
-
-        if len(effective_bins) > 0:
-            effective_min = bins[effective_bins[0]]
-            effective_max = bins[effective_bins[-1]]
-        else:
-            # 回退到数据范围
-            effective_min = float(data.min())
-            effective_max = float(data.max())
+        # 使用与自动优化算法相同的智能检测逻辑
+        effective_min, effective_max = self._detect_effective_range(data)
 
         print(f"🎯 智能范围计算:")
         print(f"   原始数据范围: {data.min()} - {data.max()}")
@@ -328,6 +315,74 @@ class ImageManager:
         print(f"   智能窗位范围: {wl_min} - {wl_max}")
 
         return (ww_min, ww_max), (wl_min, wl_max)
+
+    def _detect_effective_range(self, data: np.ndarray) -> tuple:
+        """检测有效数据范围（复用自动优化算法的逻辑）
+
+        Args:
+            data: 图像数据
+
+        Returns:
+            tuple: (effective_min, effective_max)
+        """
+        data_min = int(data.min())
+        data_max = int(data.max())
+        total_pixels = data.size
+
+        # 计算直方图
+        hist, bins = np.histogram(data.flatten(), bins=65536, range=(data_min, data_max))
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
+        # 检测过曝峰值（与自动优化算法相同的逻辑）
+        pixel_ratios = hist / total_pixels
+        major_peaks = np.where(pixel_ratios > 0.05)[0]  # 超过5%的bins
+
+        overexposed_peaks = []
+        for peak_idx in major_peaks:
+            peak_value = bin_centers[peak_idx]
+            peak_ratio = pixel_ratios[peak_idx]
+            # 过曝判断：灰度值 > 80%范围 且 像素数 > 5%
+            if peak_value > (data_min + (data_max - data_min) * 0.8):
+                overexposed_peaks.append((peak_value, peak_ratio))
+
+        if overexposed_peaks:
+            # 检测到过曝背景，使用工件检测算法
+            overexposed_threshold = min(peak[0] for peak in overexposed_peaks)
+            noise_threshold = total_pixels * 0.0001
+
+            # 找到有效的工件数据区域
+            valid_bins = np.where((bin_centers < overexposed_threshold) & (hist > noise_threshold))[0]
+
+            if len(valid_bins) > 10:
+                # 在有效区域内计算5%-95%
+                valid_pixels = np.sum(hist[valid_bins])
+                valid_cumulative = np.cumsum(hist[valid_bins])
+
+                lower_threshold = valid_pixels * 0.05
+                upper_threshold = valid_pixels * 0.95
+
+                lower_idx = np.where(valid_cumulative >= lower_threshold)[0]
+                upper_idx = np.where(valid_cumulative >= upper_threshold)[0]
+
+                if len(lower_idx) > 0 and len(upper_idx) > 0:
+                    effective_min = bin_centers[valid_bins[lower_idx[0]]]
+                    effective_max = bin_centers[valid_bins[upper_idx[0]]]
+                    return effective_min, effective_max
+
+        # 回退：使用标准5%-95%算法
+        cumulative_pixels = np.cumsum(hist)
+        lower_bound = np.where(cumulative_pixels >= total_pixels * 0.05)[0]
+        upper_bound = np.where(cumulative_pixels >= total_pixels * 0.95)[0]
+
+        if len(lower_bound) > 0 and len(upper_bound) > 0:
+            effective_min = bin_centers[lower_bound[0]]
+            effective_max = bin_centers[upper_bound[0]]
+        else:
+            # 最终回退
+            effective_min = float(data_min)
+            effective_max = float(data_max)
+
+        return effective_min, effective_max
 
     def _refresh_display_cache(self):
         """刷新显示缓存"""
